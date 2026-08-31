@@ -1,0 +1,2 @@
+curl -X GET "https://feel-good-drive.base44.app/functions/getPendingDepartements" \
+  -H "X-Service-Key: YOUR_ACTUAL_KEY"
