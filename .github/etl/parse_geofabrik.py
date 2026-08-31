@@ -208,7 +208,7 @@ def main():
     if not os.path.exists(PBF):
         print(f"[etl] PBF introuvable ({PBF}) — telechargement...")
         urllib.request.urlretrieve(
-            'https://download.geofabrik.de/europe/france/france-latest.osm.pbf', PBF)
+            'https://download.geofabrik.de/europe/france-latest.osm.pbf', PBF)
 
     print('[etl] Parsing PBF (peut durer plusieurs minutes)...')
     h = Handler(deps)
