@@ -45,12 +45,18 @@ jobs:
       - name: Download Geofabrik France PBF
         if: steps.pending.outputs.count != '0'
         run: |
-          if [ ! -f /tmp/france-latest.osm.pbf ]; then
+         if [ ! -f /tmp/france-latest.osm.pbf ] || [ "$(stat -c%s /tmp/france-latest.osm.pbf 2>/dev/null || echo 0)" -lt 1000000000 ]; then
             echo "Downloading Geofabrik France PBF (~5 GB)..."
-            curl -L --fail -o /tmp/france-latest.osm.pbf \
-              https://download.geofabrik.de/europe/france/france-latest.osm.pbf
+            curl -L --fail --retry 3 --retry-delay 5 \
+              -o /tmp/france-latest.osm.pbf \
+              https://download.geofabrik.de/europe/france-latest.osm.pbf
           fi
           ls -lh /tmp/france-latest.osm.pbf
+          # garde: le fichier doit etre binaire (PBF), pas une page HTML
+          if head -c 8 /tmp/france-latest.osm.pbf | grep -q '<!DO\|<html\|<HTML'; then
+            echo "ERROR: fichier telecharge = HTML (mauvaise URL Geofabrik)"; exit 1
+          fi
+  
 
       - name: Run ETL parser
         if: steps.pending.outputs.count != '0'
