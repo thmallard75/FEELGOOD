@@ -30,7 +30,7 @@ jobs:
       - name: Check pending departements
         id: pending
         env:
-          GEOSERVICE_KEY: ${{ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZ}}
+          GEOSERVICE_KEY: ${{ secrets.GEOSERVICE_KEY }}
           APP_BASE: https://feel-good-drive.base44.app
         run: |
           python - <<'PY'
