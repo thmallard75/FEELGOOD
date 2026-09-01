@@ -7,12 +7,13 @@
 # - Vision d'avancement : % d'octets du PBF deja lus (sonde /proc/self/fdinfo),
 #   compts de nœuds/ways et phase courante rafraichis toutes les 5 s,
 #   puis % pousse lors de l'envoi des batches.
+# - Batches de 200 cellules + retry 5xx/timeout pour eviter le 500 passerelle.
 
 import os, sys, time, json, math, re, threading, urllib.request, urllib.error
 import osmium
 
 CELL = 0.01
-MARGIN = 0.05  # marge (~5 km)
+MARGIN = 0.05  # marge ~5 km
 
 MOTOR = {
     'motorway', 'motorway_link', 'trunk', 'trunk_link',
@@ -32,6 +33,7 @@ KEY = os.environ['GEOSERVICE_KEY']
 BASE = os.environ.get('APP_BASE', 'https://feel-good-drive.base44.app')
 PBF = os.environ.get('PBF_PATH', '/tmp/france-latest.osm.pbf')
 UA = 'feelgood-etl/1.0'
+BATCH = 200
 
 
 def ckey(lat, lon):
@@ -76,7 +78,7 @@ def fetch_pending():
     req = urllib.request.Request(
         f"{BASE}/functions/getPendingDepartements",
         headers={'X-Service-Key': KEY, 'User-Agent': UA})
-    with urllib.request.urlopen(req) as r:
+    with urllib.request.urlopen(req, timeout=60) as r:
         return json.load(r).get('pending', [])
 
 
@@ -108,22 +110,44 @@ def dep_for_cell(a, b, deps):
     return None
 
 
-def post_batch(dep_code, batch, is_final, cells_total):
+def post_batch(dep_code, batch, is_final, cells_total, max_attempts=5):
     body = json.dumps({
         'departement_code': dep_code,
         'batch': batch,
         'is_final': bool(is_final),
         'cells_total': cells_total,
     }).encode()
-    req = urllib.request.Request(
-        f"{BASE}/functions/importGeofabrikTiles",
-        data=body,
-        headers={'X-Service-Key': KEY,
-                 'Content-Type': 'application/json',
-                 'User-Agent': UA},
-        method='POST')
-    with urllib.request.urlopen(req) as r:
-        return json.load(r)
+    url = f"{BASE}/functions/importGeofabrikTiles"
+    last_err = None
+    for attempt in range(1, max_attempts + 1):
+        req = urllib.request.Request(
+            url, data=body,
+            headers={'X-Service-Key': KEY,
+                     'Content-Type': 'application/json',
+                     'User-Agent': UA},
+            method='POST')
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                return json.load(r)
+        except urllib.error.HTTPError as e:
+            last_err = e
+            code = e.code
+            # 4xx (sauf 429) = erreur definitive, ne pas retenter
+            if 400 <= code < 500 and code != 429:
+                print(f"[post] HTTP {code} irreparable — arret (dep={dep_code}, n={len(batch)})",
+                      flush=True)
+                raise
+            wait = min(30 * attempt, 120)
+            print(f"[post] HTTP {code} (tentative {attempt}/{max_attempts}) — retry dans {wait}s",
+                  flush=True)
+            time.sleep(wait)
+        except (urllib.error.URLError, TimeoutError) as e:
+            last_err = e
+            wait = min(30 * attempt, 120)
+            print(f"[post] reseau {type(e).__name__}: {e} — retry {attempt}/{max_attempts} dans {wait}s",
+                  flush=True)
+            time.sleep(wait)
+    raise RuntimeError(f"post_batch echoue apres {max_attempts} tentatives: {last_err}")
 
 
 # ---------- Suivi d'avancement ----------
@@ -131,29 +155,29 @@ def post_batch(dep_code, batch, is_final, cells_total):
 class Progress:
     def __init__(self, total_bytes):
         self.total = max(total_bytes, 1)
-        self.h = None            # handler (pour lire ses compteurs)
-        self.phase = 'parse'     # 'parse' | 'push'
+        self.h = None
+        self.phase = 'parse'
         self.push_done = 0
         self.push_total = 0
         self.start = time.time()
         self.stop_evt = threading.Event()
 
     def _fd_pos(self):
-        # /proc/self/fd/<n> -> readlink pour trouver celui qui pointe vers le PBF
         target = os.path.realpath(PBF)
         for name in os.listdir('/proc/self/fd'):
             try:
                 link = os.readlink(f'/proc/self/fd/{name}')
             except OSError:
                 continue
-            if os.path.realpath(link) == target:
-                try:
+            try:
+                if os.path.realpath(link) == target:
                     with open(f'/proc/self/fdinfo/{name}') as f:
                         for line in f:
                             if line.startswith('pos:'):
                                 return int(line.split()[1])
-                except OSError:
-                    return None
+                    break
+            except OSError:
+                continue
         return None
 
     def _loop(self):
@@ -191,7 +215,6 @@ class Handler(osmium.SimpleHandler):
         self.boxes = build_bbox_filters(deps)
         self.node_locs = {}
         self.cells = {}
-        # compteurs pour l'avancement
         self.n_nodes = 0
         self.n_ways = 0
         self.phase = 'nodes'
@@ -291,15 +314,15 @@ def main():
     if not deps:
         print('[etl] Aucun departement pending — arret.')
         return
-    print(f"[etl] {len(deps)} departement(s) pending: {[d['code'] for d in deps]}")
+    print(f"[etl] {len(deps)} departement(s) pending: {[d['code'] for d in deps]}", flush=True)
 
     if not os.path.exists(PBF) or os.path.getsize(PBF) < 1_000_000_000:
-        print(f"[etl] PBF absent/incomplet ({PBF}) — telechargement...")
+        print(f"[etl] PBF absent/incomplet ({PBF}) — telechargement...", flush=True)
         urllib.request.urlretrieve(
             'https://download.geofabrik.de/europe/france-latest.osm.pbf', PBF)
 
     total_bytes = os.path.getsize(PBF)
-    print(f"[etl] PBF: {total_bytes:,} octets — parsing (index partiel) en cours...")
+    print(f"[etl] PBF: {total_bytes:,} octets — parsing (index partiel) en cours...", flush=True)
 
     prog = Progress(total_bytes)
     h = Handler(deps)
@@ -327,25 +350,37 @@ def main():
         by_dep.setdefault(code, []).append(rec)
 
     prog.push_total = sum(len(v) for v in by_dep.values()) or 1
+    print(f"[etl] {len(by_dep)} departement(s) a pousser, "
+          f"{prog.push_total} cellules au total (batches de {BATCH})", flush=True)
+
     total_created = 0
     for code, cells in by_dep.items():
         cells_total = len(cells)
-        print(f"[etl] {code}: {cells_total} cellules a pousser")
+        print(f"[etl] {code}: {cells_total} cellules a pousser (batches de {BATCH})", flush=True)
         done = 0
-        for i in range(0, cells_total, 1000):
-            batch = cells[i:i + 1000]
-            is_final = (i + 1000) >= cells_total
-            resp = post_batch(code, batch, is_final, cells_total)
+        n_batches = (cells_total + BATCH - 1) // BATCH
+        for i in range(0, cells_total, BATCH):
+            batch = cells[i:i + BATCH]
+            is_final = (i + BATCH) >= cells_total
+            try:
+                resp = post_batch(code, batch, is_final, cells_total)
+            except Exception as e:
+                print(f"[etl] {code} batch {i//BATCH + 1}/{n_batches} en echec definitif: {e} — on continue",
+                      flush=True)
+                prog.push_done += len(batch)
+                continue
             c = resp.get('created', 0)
             done += c
-            prog.push_done += c
-            print(f"[etl]   {code} batch {i//1000 + 1}: created={c} "
-                  f"done={resp.get('cells_done')} status={resp.get('status')}", flush=True)
+            prog.push_done += len(batch)
+            print(f"[etl]   {code} batch {i//BATCH + 1}/{n_batches}: "
+                  f"created={c} done={resp.get('cells_done')} status={resp.get('status')}",
+                  flush=True)
         total_created += done
-        print(f"[etl] {code} complete: {done}/{cells_total} cellules")
+        print(f"[etl] {code} termine: {done}/{cells_total} cellules creees", flush=True)
 
     prog.finish()
-    print(f"[etl] Termine en {int(time.time()-prog.start)}s. cellules poussees={total_created}")
+    print(f"[etl] Termine en {int(time.time()-prog.start)}s. cellules poussees={total_created}",
+          flush=True)
 
 
 if __name__ == '__main__':
