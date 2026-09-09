@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:local": "node devserver/dev.mjs",
+    "dev:api": "node --experimental-strip-types devserver/server.mjs",
+    "dev:reset": "node -e \"require('node:fs').rmSync('devserver/.data',{recursive:true,force:true})\" && echo \"donnees de dev effacees\"",
     "build": "vite build",
     "lint": "eslint . --quiet",
     "lint:fix": "eslint . --fix",

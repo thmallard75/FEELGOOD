@@ -31,3 +31,6 @@ dist-ssr
 .env
 .vite
 base44/.app.jsonc
+
+# Etat du backend de developpement (recree par le seed)
+devserver/.data/
