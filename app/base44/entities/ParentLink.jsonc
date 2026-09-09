@@ -1,0 +1,160 @@
+{
+  "name": "ParentLink",
+  "type": "object",
+  "properties": {
+    "young_driver_email": {
+      "type": "string",
+      "description": "Email du jeune conducteur"
+    },
+    "young_driver_name": {
+      "type": "string",
+      "description": "Pr\u00e9nom/nom du jeune conducteur"
+    },
+    "parent_email": {
+      "type": "string",
+      "description": "Email du parent/tuteur"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "active",
+        "revoked"
+      ],
+      "default": "pending",
+      "description": "Statut du lien"
+    },
+    "weekly_score": {
+      "type": "number",
+      "description": "Score moyen de la semaine (agr\u00e9g\u00e9, mis \u00e0 jour par le jeune)"
+    },
+    "monthly_score": {
+      "type": "number",
+      "description": "Score moyen du mois (agr\u00e9g\u00e9)"
+    },
+    "total_km": {
+      "type": "number",
+      "description": "Kilom\u00e9trage total (agr\u00e9g\u00e9)"
+    },
+    "trips_count_week": {
+      "type": "integer",
+      "description": "Nombre de trajets cette semaine"
+    },
+    "trips_count_month": {
+      "type": "integer",
+      "description": "Nombre de trajets ce mois"
+    },
+    "category_scores": {
+      "type": "object",
+      "description": "Scores moyens par cat\u00e9gorie (agr\u00e9g\u00e9s)",
+      "properties": {
+        "anticipation": {
+          "type": "number"
+        },
+        "stop": {
+          "type": "number"
+        },
+        "speed": {
+          "type": "number"
+        },
+        "smoothness": {
+          "type": "number"
+        },
+        "attention": {
+          "type": "number"
+        }
+      }
+    },
+    "weekly_trend": {
+      "type": "array",
+      "description": "Score moyen par semaine sur les 6 derni\u00e8res semaines",
+      "items": {
+        "type": "object",
+        "properties": {
+          "week_label": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number"
+          },
+          "trips": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "alerts": {
+      "type": "array",
+      "description": "Alertes importantes (fatigue, t\u00e9l\u00e9phone fr\u00e9quent) sans localisation",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "encouraging_message": {
+      "type": "string",
+      "description": "Message encourageant g\u00e9n\u00e9r\u00e9 automatiquement"
+    },
+    "last_sync": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Derni\u00e8re synchronisation des stats agr\u00e9g\u00e9es"
+    }
+  },
+  "required": [
+    "young_driver_email",
+    "parent_email"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "email": {
+          "$exists": true
+        }
+      }
+    },
+    "read": {
+      "$or": [
+        {
+          "created_by": "{{user.email}}"
+        },
+        {
+          "parent_email": "{{user.email}}"
+        },
+        {
+          "young_driver_email": "{{user.email}}"
+        }
+      ]
+    },
+    "update": {
+      "$or": [
+        {
+          "created_by": "{{user.email}}"
+        },
+        {
+          "young_driver_email": "{{user.email}}"
+        }
+      ]
+    },
+    "delete": {
+      "$or": [
+        {
+          "created_by": "{{user.email}}"
+        },
+        {
+          "young_driver_email": "{{user.email}}"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,99 @@
+{
+  "name": "RegionDownload",
+  "type": "object",
+  "properties": {
+    "region_code": {
+      "type": "string",
+      "description": "Code r\u00e9gion (slug)"
+    },
+    "region_name": {
+      "type": "string",
+      "description": "Nom affich\u00e9 de la r\u00e9gion"
+    },
+    "bbox": {
+      "type": "object",
+      "description": "Bo\u00eete englobante de la r\u00e9gion",
+      "properties": {
+        "minLat": {
+          "type": "number"
+        },
+        "minLng": {
+          "type": "number"
+        },
+        "maxLat": {
+          "type": "number"
+        },
+        "maxLng": {
+          "type": "number"
+        }
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "downloading",
+        "complete",
+        "failed"
+      ],
+      "default": "pending"
+    },
+    "cells_total": {
+      "type": "integer",
+      "description": "Nombre total de cellules \u00e0 couvrir"
+    },
+    "cells_done": {
+      "type": "integer",
+      "description": "Nombre de cellules d\u00e9j\u00e0 en cache"
+    },
+    "last_sync": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "error": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "region_code"
+  ],
+  "rls": {
+    "create": {},
+    "read": {
+      "$or": [
+        {
+          "created_by": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "$or": [
+        {
+          "created_by": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "delete": {
+      "$or": [
+        {
+          "created_by": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    }
+  }
+}
