@@ -68,7 +68,9 @@ function App() {
   return (
     <AuthProvider>
       <QueryClientProvider client={queryClientInstance}>
-        <Router>
+        {/* Le routage part de la base du build : sans cela, une application
+            servie depuis un sous-chemin ne reconnait plus aucune de ses URL. */}
+        <Router basename={import.meta.env.BASE_URL}>
           <AuthenticatedApp />
         </Router>
         <Toaster />

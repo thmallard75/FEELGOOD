@@ -106,7 +106,10 @@ class BackgroundKeepAlive {
   async _registerServiceWorker() {
     if (!('serviceWorker' in navigator)) return;
     try {
-      this._swReg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+      // Chemins derives de la base : l'application peut etre servie depuis un
+      // sous-chemin, ou un scope '/' serait refuse.
+      const base = import.meta.env.BASE_URL;
+      this._swReg = await navigator.serviceWorker.register(`${base}sw.js`, { scope: base });
 
       // Attendre que le SW soit actif
       await navigator.serviceWorker.ready;
