@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Extraits OpenStreetMap telecharges par l'ETL
+*.osm.pbf
+*.osm.pbf.part
