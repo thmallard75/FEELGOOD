@@ -22,6 +22,18 @@ export const AuthProvider = ({ children }) => {
     try {
       setIsLoadingPublicSettings(true);
       setAuthError(null);
+
+      // La demonstration statique n'a pas de backend a interroger : l'appel
+      // aux reglages publics partirait vers /api, absent des pages statiques.
+      if (import.meta.env.VITE_DEMO_MODE === 'true') {
+        setAppPublicSettings({ id: appParams.appId, public_settings: {} });
+        setUser(await base44.auth.me());
+        setIsAuthenticated(true);
+        setIsLoadingPublicSettings(false);
+        setIsLoadingAuth(false);
+        setAuthChecked(true);
+        return;
+      }
       
       // First, check app public settings (with token if available)
       // This will tell us if auth is required, user not registered, etc.

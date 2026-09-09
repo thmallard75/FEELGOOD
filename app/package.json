@@ -8,6 +8,8 @@
     "dev:local": "node devserver/dev.mjs",
     "dev:api": "node --experimental-strip-types devserver/server.mjs",
     "dev:reset": "node -e \"require('node:fs').rmSync('devserver/.data',{recursive:true,force:true})\" && echo \"donnees de dev effacees\"",
+    "demo:snapshot": "node --experimental-strip-types devserver/export-demo.mjs",
+    "build:demo": "node devserver/build-demo.mjs",
     "build": "vite build",
     "lint": "eslint . --quiet",
     "lint:fix": "eslint . --fix",
