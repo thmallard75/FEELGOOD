@@ -45,6 +45,13 @@ FRANCE_PBF = 'https://download.geofabrik.de/europe/france-latest.osm.pbf'
 MAX_REGIONS = 8
 MIN_PBF_BYTES = 1_000_000  # un extrait plausible fait au moins ~1 Mo
 
+# analyzeTrip valide la traversee d'un giratoire a `radius + 20` m du centre,
+# et retombe sur 15 m quand le rayon est absent. Un grand giratoire etait donc
+# ignore des que la trace GPS passait au-dela de 35 m du centre. Un
+# mini_roundabout est un nœud sans geometrie : l'application lui prete 8 m.
+MIN_ROUNDABOUT_RADIUS_M = 8
+MINI_ROUNDABOUT_RADIUS_M = 8
+
 MOTOR = {
     'motorway', 'motorway_link', 'trunk', 'trunk_link',
     'primary', 'primary_link', 'secondary', 'secondary_link',
@@ -58,14 +65,22 @@ DEFAULTS = {
     'tertiary': 80, 'tertiary_link': 80, 'unclassified': 80,
     'residential': 30, 'living_street': 20, 'road': 50,
 }
+# Le champ `type` n'est pas descriptif : il sert de bonus d'appariement dans
+# findSpeedLimit cote application (highway -18, periurban -4, urban 0, le plus
+# bas gagnant). Les bretelles doivent rester 'urban' pour ne pas concurrencer
+# l'autoroute qu'elles longent : sinon un point GPS en entree ou sortie
+# s'apparie a la bretelle (limitee 90) plutot qu'a l'autoroute (130) et produit
+# un faux exces de vitesse. Toute modification ici doit etre repercutee dans
+# shared/osmCore.ts et functions/osmProxy/entry.ts de l'application.
 HIGHWAY_KINDS = {
-    'motorway': 'highway', 'motorway_link': 'highway',
-    'trunk': 'highway', 'trunk_link': 'highway',
-    'primary': 'periurban', 'primary_link': 'periurban',
-    'secondary': 'periurban', 'secondary_link': 'periurban',
-    'tertiary': 'periurban', 'tertiary_link': 'periurban',
-    'unclassified': 'periurban',
+    'motorway': 'highway', 'trunk': 'highway',
+    'primary': 'periurban', 'secondary': 'periurban',
+    'tertiary': 'periurban', 'unclassified': 'periurban',
 }
+
+
+def road_kind(hw):
+    return HIGHWAY_KINDS.get(hw, 'urban')
 
 
 class Config:
@@ -164,20 +179,25 @@ class BBoxIndex:
 
 
 def parse_maxspeed(raw):
-    """Convertit un tag OSM `maxspeed` en km/h, ou None si non exploitable."""
+    """Convertit un tag OSM `maxspeed` en km/h, ou None si non exploitable.
+
+    Aligne sur parseMaxspeed de l'application, a une exception pres : les mph
+    sont testes avant la valeur nue. Cote application, `parseInt('50 mph')`
+    rend 50 et sort avant la branche mph, qui est donc morte.
+
+    Les chiffres de tete sont lus au lieu du premier mot entier, pour traiter
+    comme l'application les tags composes du type "50;70".
+    """
     if not raw:
         return None
     s = raw.strip()
     low = s.lower()
-    # Les mph sont testes avant la valeur nue : "50 mph" vaut 80 km/h, pas 50.
     if 'mph' in low:
         m = re.search(r'\d+', low)
         return round(int(m.group()) * 1.609) if m else None
-    try:
-        v = int(s.split()[0])
-    except ValueError:
-        pass
-    else:
+    m = re.match(r'\d+', s)
+    if m:
+        v = int(m.group())
         return v if v > 0 else None
     if 'urban' in low:
         return 50
@@ -604,7 +624,7 @@ class Handler(osmium.SimpleHandler):
         hw = tags.get('highway')
         if hw == 'mini_roundabout':
             self.seen_nodes.add(n.id)
-            self._add_roundabout(lat, lon, 20, f'mini_{n.id}')
+            self._add_roundabout(lat, lon, 20, f'mini_{n.id}', MINI_ROUNDABOUT_RADIUS_M)
         elif hw == 'stop' or tags.get('traffic_sign') == 'stop':
             self.seen_nodes.add(n.id)
             self._add_stop(lat, lon, f'stop_{n.id}')
@@ -633,16 +653,17 @@ class Handler(osmium.SimpleHandler):
         lon = sum(p[1] for p in pts) / len(pts)
         cnt = min(len(pts), 12)
         radius = sum(haversine_m(lat, lon, p[0], p[1]) for p in pts[:cnt]) / cnt
-        if radius < 8 or not self.index.contains(lat, lon):
+        if radius < MIN_ROUNDABOUT_RADIUS_M or not self.index.contains(lat, lon):
             return
-        self._add_roundabout(lat, lon, parse_maxspeed(w.tags.get('maxspeed')) or 30, f'rb_{w.id}')
+        self._add_roundabout(lat, lon, parse_maxspeed(w.tags.get('maxspeed')) or 30,
+                             f'rb_{w.id}', round(radius))
 
     def _add_segments(self, w, hw):
         speed = parse_maxspeed(w.tags.get('maxspeed'))
         explicit = speed is not None
         if speed is None:
             speed = DEFAULTS.get(hw, 50)
-        kind = HIGHWAY_KINDS.get(hw, 'urban')
+        kind = road_kind(hw)
         name = w.tags.get('name') or None
         osm_id = int(w.id)
         locs = self.node_locs
@@ -662,10 +683,11 @@ class Handler(osmium.SimpleHandler):
                     })
             prev = cur
 
-    def _add_roundabout(self, lat, lon, maxspeed, id_):
+    def _add_roundabout(self, lat, lon, maxspeed, id_, radius):
         rec = self._rec(ckey(lat, lon))
         rec['road_data']['roundabouts'].append(
-            {'lat': round(lat, 7), 'lon': round(lon, 7), 'maxspeed': maxspeed, 'id': id_})
+            {'lat': round(lat, 7), 'lon': round(lon, 7), 'maxspeed': maxspeed,
+             'id': id_, 'radius': radius})
 
     def _add_stop(self, lat, lon, id_):
         rec = self._rec(ckey(lat, lon))
@@ -757,8 +779,13 @@ def push_departement(cfg, code, cells, post=post_batch, on_sent=None):
         if on_sent:
             on_sent(len(batch))
     if failed:
-        log(f'[etl] {code}: {failed}/{len(batches)} batch(es) en echec — '
-            f'is_final non envoye, le departement reste pending')
+        # getPendingDepartements ne rend que les status 'pending', et le premier
+        # batch a deja fait passer le departement en 'downloading' : il ne sera
+        # pas represente au prochain run tant que son status n'est pas remis a
+        # 'pending'. Voir la section correspondante du README.
+        log(f'[etl] {code}: {failed}/{len(batches)} batch(es) en echec — is_final '
+            f'non envoye. Le departement reste en status downloading et ne sera pas '
+            f'repropose : remettre son status a pending pour le reprendre.')
     return created, failed
 
 

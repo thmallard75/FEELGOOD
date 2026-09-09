@@ -67,8 +67,17 @@ python -m pytest tests -q
 ## Notes d'exploitation
 
 - **`is_final` n'est envoyé que si tous les batches d'un département sont
-  passés.** Sinon le département reste pending et sera repris au prochain run.
-  Le job se termine en erreur pour que l'échec soit visible.
+  passés.** `importGeofabrikTiles` fait passer le département en `complete`
+  dès qu'il reçoit `is_final`, donc l'envoyer après un batch en échec clôt un
+  département amputé. Le job se termine en erreur pour que ce soit visible.
+- **Un département interrompu doit être remis à `pending` à la main.**
+  `getPendingDepartements` ne renvoie que les `status: 'pending'`, alors que
+  `importGeofabrikTiles` passe le département en `downloading` dès le premier
+  batch. Un run interrompu — batch en échec, timeout, éviction du runner —
+  laisse donc le département en `downloading`, et rien ne le repropose :
+  `detectDepartementsToPreload` ignore les codes déjà présents quel que soit
+  leur statut, et `retryPendingDownloads` ne traite que `RegionDownload`.
+  Voir « Correctif attendu côté application ».
 - **Les batches sont plafonnés à la taille réelle du JSON**, pas au nombre de
   cellules. Mesuré sur la Corse, 200 cellules pesaient 4,4 Mo, au-delà de ce
   qu'une passerelle serverless accepte — l'origine probable des 500
@@ -82,6 +91,60 @@ python -m pytest tests -q
   sans qu'aucun commit n'ait eu lieu.
 - **Le cache disque n'a pas d'effet sur un runner GitHub** (disque jeté à
   chaque run). `PBF_CACHE_DIR` devient utile sur un runner persistant.
+
+## Contrat avec l'application
+
+Le champ `road_data.speedLimits[].type` n'est pas descriptif : il sert de
+bonus d'appariement dans `findSpeedLimit` (`highway` -18, `periurban` -4,
+`urban` 0, le score le plus bas gagnant). C'est pourquoi les bretelles
+(`motorway_link`, `primary_link`, …) sont classées `urban` et non d'après
+leur voie parente : une bretelle `highway` serait à égalité avec l'autoroute
+qu'elle longe, la distance suffirait à lui faire gagner l'appariement, et un
+point GPS en entrée ou sortie se retrouverait limité à 90 au lieu de 130 —
+donc un faux excès de vitesse. Un test verrouille ce comportement.
+
+Chaque rond-point porte un `radius`. `analyzeTrip` ne valide la traversée
+qu'à `radius + 20` m du centre et retombe sur 15 m quand le champ est absent,
+soit une tolérance de 35 m. L'ETL ne l'émettait pas : mesuré sur la
+Corse-du-Sud, 15 des 85 ronds-points avaient donc une tolérance
+sous-estimée — un giratoire de 39 m de rayon était écarté comme « non
+traversé » et disparaissait du scoring. Les mini ronds-points, à l'inverse,
+étaient trop permissifs (35 m au lieu de 28).
+
+**À vérifier côté application** : `OsmTileCache.jsonc` ne déclare pas
+`radius` sous `road_data.roundabouts.items.properties`. Le chemin Overpass
+écrit déjà ce champ dans la même entité, mais si Base44 élague les propriétés
+imbriquées non déclarées, il faut l'ajouter au schéma pour que la correction
+prenne effet.
+
+La même logique de parsing existe en trois exemplaires : ici, dans
+`shared/osmCore.ts` et dans `functions/osmProxy/entry.ts`. Toute évolution
+des tables `MOTOR`, `DEFAULTS`, `HIGHWAY_KINDS` ou de `parse_maxspeed` doit
+être répercutée dans les trois, sans quoi une même route sera notée
+différemment selon qu'elle vient du cache Geofabrik ou d'Overpass.
+
+Divergence connue et assumée : `parse_maxspeed` convertit les mph, alors que
+le `parseInt` de l'application rend `50` pour `"50 mph"` et sort avant sa
+propre branche mph, qui est donc morte. L'impact est négligeable en France.
+
+## Correctif attendu côté application
+
+Pour qu'un département interrompu reprenne tout seul,
+`getPendingDepartements` doit aussi renvoyer les départements bloqués, comme
+`retryPendingDownloads` le fait déjà pour `RegionDownload` :
+
+```ts
+// getPendingDepartements — au lieu du seul filter({ status: 'pending' })
+const pending = await base44.asServiceRole.entities.DepartementPreload
+  .filter({ status: 'pending' }, '-created_date', 200) || [];
+const stale = (await base44.asServiceRole.entities.DepartementPreload
+  .filter({ status: 'downloading' }, '-created_date', 200) || [])
+  .filter((d) => !d.last_sync || Date.now() - new Date(d.last_sync) > 6 * 3600 * 1000);
+const list = [...pending, ...stale, ...failed];
+```
+
+Le réimport est sans risque : `importGeofabrikTiles` ignore les cellules déjà
+présentes, un département repris ne recrée donc que ce qui manque.
 
 ## Limites connues
 

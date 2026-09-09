@@ -59,6 +59,45 @@ def test_parse_maxspeed_converts_mph(raw, expected):
     assert pg.parse_maxspeed(raw) == expected
 
 
+@pytest.mark.parametrize('raw, expected', [
+    ('50;70', 50),
+    ('50 km/h', 50),
+    ('30 zone', 30),
+])
+def test_parse_maxspeed_reads_leading_digits(raw, expected):
+    """Aligne sur le parseInt de l'application pour les tags composes."""
+    assert pg.parse_maxspeed(raw) == expected
+
+
+@pytest.mark.parametrize('hw, kind', [
+    ('motorway', 'highway'),
+    ('trunk', 'highway'),
+    ('primary', 'periurban'),
+    ('unclassified', 'periurban'),
+    ('residential', 'urban'),
+    ('living_street', 'urban'),
+    ('road', 'urban'),
+])
+def test_road_kind_matches_application(hw, kind):
+    assert pg.road_kind(hw) == kind
+
+
+@pytest.mark.parametrize('hw', [
+    'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link',
+])
+def test_link_ways_stay_urban(hw):
+    """Verrou volontaire, contre-intuitif : une bretelle n'est pas 'highway'.
+
+    Le type sert de bonus d'appariement dans findSpeedLimit cote application
+    (highway -18, periurban -4, urban 0, le plus bas gagnant). Classer une
+    bretelle 'highway' la met a egalite avec l'autoroute qu'elle longe, et la
+    distance suffit alors a lui faire gagner l'appariement : un point GPS en
+    entree ou sortie se retrouve limite a 90 au lieu de 130, d'ou un faux
+    exces de vitesse. Ne pas "corriger" sans changer aussi l'application.
+    """
+    assert pg.road_kind(hw) == 'urban'
+
+
 # ---------- Geometrie ----------
 
 def test_ckey_handles_negative_coordinates():
@@ -230,6 +269,21 @@ def test_iter_batches_respects_measured_json_size():
     batches = list(pg.iter_batches(dense, max_cells=200, max_bytes=3 * pg.rec_size(dense[0])))
     assert all(sum(map(pg.rec_size, b)) <= 3 * pg.rec_size(dense[0]) for b in batches)
     assert sum(len(b) for b in batches) == 10
+
+
+def test_roundabouts_carry_a_radius():
+    """analyzeTrip lit `rb.radius` et retombe sur 15 m en son absence.
+
+    Sans ce champ, la traversee d'un giratoire n'est validee que jusqu'a 35 m
+    du centre : un grand giratoire dont la trace GPS passe au-dela est ecarte
+    comme non traverse, et disparait du scoring.
+    """
+    h = pg.Handler([{'code': '75', 'box': (48.8, 2.2, 48.9, 2.5)}])
+    h._add_roundabout(48.85, 2.35, 30, 'rb_1', 24)
+    h._add_roundabout(48.85, 2.35, 20, 'mini_2', pg.MINI_ROUNDABOUT_RADIUS_M)
+    emitted = next(iter(h.cells.values()))['road_data']['roundabouts']
+    assert [r['radius'] for r in emitted] == [24, 8]
+    assert set(emitted[0]) == {'lat', 'lon', 'maxspeed', 'id', 'radius'}
 
 
 # ---------- Regroupement ----------
