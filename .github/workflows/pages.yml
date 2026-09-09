@@ -8,7 +8,11 @@ name: Demo Pages
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      # Permet de publier la demonstration avant la fusion de la PR ; cette
+      # ligne peut disparaitre une fois la branche fusionnee.
+      - cursor/import-feelgood-app-cf00
     paths:
       - 'app/**'
       - '.github/workflows/pages.yml'
