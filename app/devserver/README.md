@@ -68,6 +68,32 @@ navigateur (entites, `User/me`, `public-settings`, `functions/<nom>`), et
   `pending_osm`, exactement comme en production.
 - **Un seul utilisateur.** Il n'y a ni inscription ni changement de compte.
 
+## Mise en ligne : la demonstration statique
+
+Un hebergement de pages statiques n'execute rien : impossible d'y faire tourner
+ce backend. Le build de demonstration contourne le probleme en figeant les
+resultats plutot qu'en les recalculant.
+
+```bash
+npm run demo:snapshot   # rejoue le seed et fige entites + reponses de fonctions
+npm run build:demo      # build Vite + instantane + repli 404.html
+```
+
+`demo:snapshot` appelle les vraies fonctions backend puis ecrit
+`demo/demo-snapshot.json` (100 Ko), versionne. Le build charge alors
+`src/api/demoClient.js` au lieu du SDK : meme surface, servie depuis
+l'instantane. Les chiffres publies sont donc ceux du moteur, pas des valeurs
+ecrites a la main.
+
+Ce que la demonstration ne peut pas faire, et signale explicitement : analyser
+un nouveau trajet, envoyer un e-mail, appeler un modele. Les ecritures
+(activer un lien parent, par exemple) fonctionnent en memoire et disparaissent
+au rechargement.
+
+Le workflow `.github/workflows/pages.yml` publie ce build sur GitHub Pages a
+chaque poussee sur `main`. `DEMO_BASE` fixe le sous-chemin de service
+(`/FEELGOOD/` pour un site de projet).
+
 ## Commandes
 
 | Commande | Effet |
@@ -75,6 +101,8 @@ navigateur (entites, `User/me`, `public-settings`, `functions/<nom>`), et
 | `npm run dev:local` | backend de dev + Vite |
 | `npm run dev:api` | backend seul, sur le port 8787 |
 | `npm run dev:reset` | efface l'etat local ; le seed est rejoue au demarrage suivant |
+| `npm run demo:snapshot` | regenere l'instantane de demonstration |
+| `npm run build:demo` | construit la version statique publiable |
 
 Deux routes d'inspection : `GET /__dev/state` (utilisateur, volumetrie,
 fonctions disponibles) et `POST /__dev/reseed`.
