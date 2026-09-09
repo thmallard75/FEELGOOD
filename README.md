@@ -47,7 +47,7 @@ identifiant OSM.
 | `ETL_DEPARTEMENTS` | — | Restreint le run (ex. `75,77`) |
 | `ETL_FORCE_FRANCE` | `false` | Force `france-latest` |
 | `ETL_BATCH_CELLS` | `200` | Cellules max par batch |
-| `ETL_BATCH_ELEMENTS` | `20000` | Éléments max par batch |
+| `ETL_BATCH_BYTES` | `1000000` | Taille max du corps JSON d'un batch |
 | `ETL_USER_AGENT` | `feelgood-etl/2.0` | En-tête `User-Agent` |
 
 En production, `GEOSERVICE_KEY` vient du secret GitHub du même nom.
@@ -69,6 +69,10 @@ python -m pytest tests -q
 - **`is_final` n'est envoyé que si tous les batches d'un département sont
   passés.** Sinon le département reste pending et sera repris au prochain run.
   Le job se termine en erreur pour que l'échec soit visible.
+- **Les batches sont plafonnés à la taille réelle du JSON**, pas au nombre de
+  cellules. Mesuré sur la Corse, 200 cellules pesaient 4,4 Mo, au-delà de ce
+  qu'une passerelle serverless accepte — l'origine probable des 500
+  mentionnés dans le code d'origine.
 - **La progression est journalisée toutes les 5 s** (octets lus, nœuds, ways,
   cellules), le parse pouvant durer des heures. La position de lecture est
   sondée via `/proc/self/fdinfo` : sous un OS sans `/proc`, seul l'affichage

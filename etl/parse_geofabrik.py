@@ -82,9 +82,9 @@ class Config:
         self.cache_dir = env.get('PBF_CACHE_DIR', '/tmp/geofabrik')
         self.user_agent = env.get('ETL_USER_AGENT', 'feelgood-etl/2.0')
         self.batch_cells = int(env.get('ETL_BATCH_CELLS', '200'))
-        # Borne la taille du corps JSON : 200 cellules denses suffisaient a
-        # declencher des 500 de passerelle.
-        self.batch_elements = int(env.get('ETL_BATCH_ELEMENTS', '20000'))
+        # Mesure : 200 cellules corses pesaient 4,4 Mo de JSON, au-dela de ce
+        # qu'une passerelle serverless accepte. 1 Mo garde de la marge.
+        self.batch_bytes = int(env.get('ETL_BATCH_BYTES', '1000000'))
         self.force_france = env.get('ETL_FORCE_FRANCE', '').strip().lower() in ('1', 'true', 'yes')
         self.only = {c.strip() for c in env.get('ETL_DEPARTEMENTS', '').split(',') if c.strip()}
         # PBF_PATH court-circuite le telechargement (tests, runner persistant).
@@ -474,6 +474,9 @@ class Progress:
         self.push_total = 0
         self.start = time.time()
         self.stop_evt = threading.Event()
+        # Sans ce verrou, un rendu de la phase parse peut s'entrelacer avec la
+        # bascule en phase push et afficher un etat deja demantele.
+        self.lock = threading.Lock()
 
     @property
     def elapsed(self):
@@ -524,9 +527,15 @@ class Progress:
         return (f'[progress] PUSH {pct:5.1f}% ({self.push_done}/{self.push_total} cellules) '
                 f'elapsed={self.elapsed}s')
 
+    def set_phase(self, phase):
+        with self.lock:
+            self.phase = phase
+
     def _loop(self):
         while not self.stop_evt.wait(5):
-            log(self._render_parse() if self.phase == 'parse' else self._render_push())
+            with self.lock:
+                line = self._render_parse() if self.phase == 'parse' else self._render_push()
+            log(line)
 
     def start_thread(self):
         t = threading.Thread(target=self._loop, daemon=True)
@@ -697,21 +706,29 @@ def group_by_departement(cells):
 
 # ---------- Envoi ----------
 
-def iter_batches(cells, max_cells, max_elements):
-    """Decoupe par nombre de cellules ET par nombre d'elements.
+def rec_size(rec):
+    return len(json.dumps(rec))
 
-    Une cellule dense pese bien plus qu'une cellule rurale : plafonner
-    seulement le nombre de cellules produisait des corps JSON assez gros pour
-    faire repondre 500 a la passerelle.
+
+def iter_batches(cells, max_cells, max_bytes, sizer=rec_size):
+    """Decoupe par nombre de cellules ET par taille du corps JSON.
+
+    Une cellule urbaine dense pese cent fois une cellule rurale : plafonner
+    seulement le nombre de cellules laissait passer des corps de plusieurs Mo,
+    ce que la passerelle refuse en 500. Mesure plutot qu'estimation, le cout
+    d'une serialisation supplementaire etant negligeable devant le parsing.
+
+    Une cellule depassant a elle seule `max_bytes` part dans son propre
+    batch : on ne sait pas la decouper.
     """
-    batch, elements = [], 0
+    batch, size = [], 0
     for rec in cells:
-        n = rec.get('element_count', 0)
-        if batch and (len(batch) >= max_cells or elements + n > max_elements):
+        n = sizer(rec)
+        if batch and (len(batch) >= max_cells or size + n > max_bytes):
             yield batch
-            batch, elements = [], 0
+            batch, size = [], 0
         batch.append(rec)
-        elements += n
+        size += n
     if batch:
         yield batch
 
@@ -722,7 +739,7 @@ def push_departement(cfg, code, cells, post=post_batch, on_sent=None):
     `is_final` n'est transmis que si aucun batch n'a echoue : le backend
     marquerait sinon comme termine un departement partiellement importe.
     """
-    batches = list(iter_batches(cells, cfg.batch_cells, cfg.batch_elements))
+    batches = list(iter_batches(cells, cfg.batch_cells, cfg.batch_bytes))
     total = len(cells)
     created = 0
     failed = 0
@@ -770,7 +787,7 @@ def main():
         handler.reset_locations()
         prog.file_done(path)
 
-    prog.phase = 'push'
+    prog.set_phase('push')
     log(f'[etl] Parsing termine: {len(handler.cells)} cellules produites, '
         f'{handler.n_nodes:,} nœuds / {handler.n_ways:,} ways lus.')
     handler.reset_locations()

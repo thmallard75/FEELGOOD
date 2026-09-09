@@ -22,6 +22,7 @@ def test_config_requires_key():
 def test_config_defaults_and_overrides():
     cfg = make_cfg(ETL_BATCH_CELLS='7', ETL_DEPARTEMENTS='75, 77 ,', ETL_FORCE_FRANCE='true')
     assert cfg.batch_cells == 7
+    assert cfg.batch_bytes == 1_000_000
     assert cfg.only == {'75', '77'}
     assert cfg.force_france is True
     assert cfg.headers()['X-Service-Key'] == 'test-key'
@@ -198,23 +199,37 @@ def cells(*counts):
     return [{'cell_key': str(i), 'element_count': c} for i, c in enumerate(counts)]
 
 
+def sizer(rec):
+    """Taille factice : le nombre d'elements de la cellule."""
+    return rec['element_count']
+
+
 def test_iter_batches_caps_cell_count():
-    batches = list(pg.iter_batches(cells(1, 1, 1, 1, 1), max_cells=2, max_elements=10_000))
+    batches = list(pg.iter_batches(cells(1, 1, 1, 1, 1), 2, 10_000, sizer=sizer))
     assert [len(b) for b in batches] == [2, 2, 1]
 
 
-def test_iter_batches_caps_element_count():
-    batches = list(pg.iter_batches(cells(60, 60, 60), max_cells=100, max_elements=100))
+def test_iter_batches_caps_body_size():
+    batches = list(pg.iter_batches(cells(60, 60, 60), 100, 100, sizer=sizer))
     assert [len(b) for b in batches] == [1, 1, 1]
 
 
 def test_iter_batches_keeps_oversized_cell_alone():
-    batches = list(pg.iter_batches(cells(5, 500, 5), max_cells=100, max_elements=100))
+    batches = list(pg.iter_batches(cells(5, 500, 5), 100, 100, sizer=sizer))
     assert [[c['element_count'] for c in b] for b in batches] == [[5], [500], [5]]
 
 
 def test_iter_batches_of_empty_input():
     assert list(pg.iter_batches([], 10, 10)) == []
+
+
+def test_iter_batches_respects_measured_json_size():
+    """Le plafond par defaut se mesure sur le JSON reellement envoye."""
+    dense = [{'cell_key': str(i), 'road_data': {'speedLimits': [{'speed': 50}] * 50}}
+             for i in range(10)]
+    batches = list(pg.iter_batches(dense, max_cells=200, max_bytes=3 * pg.rec_size(dense[0])))
+    assert all(sum(map(pg.rec_size, b)) <= 3 * pg.rec_size(dense[0]) for b in batches)
+    assert sum(len(b) for b in batches) == 10
 
 
 # ---------- Regroupement ----------
