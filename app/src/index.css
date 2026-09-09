@@ -107,3 +107,9 @@
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(0 0% 30%);
 }
+
+/* Fond de carte : les tuiles OpenStreetMap sont claires, on les inverse pour
+   rester dans le theme sombre. Voir src/lib/mapTiles.js. */
+.map-tiles-dark {
+  filter: invert(1) grayscale(1) brightness(0.88) contrast(0.95);
+}

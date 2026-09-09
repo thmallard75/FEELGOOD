@@ -6,6 +6,7 @@ import { Layers } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { getSpeedColor } from '@/lib/gpsEngine';
+import { TILE_ATTRIBUTION, TILE_CLASS, TILE_URL } from '@/lib/mapTiles';
 import 'leaflet/dist/leaflet.css';
 
 const EVENT_COLORS = {
@@ -145,8 +146,9 @@ export default function MapView() {
           style={{ width: '100%', height: '100%' }}
         >
           <TileLayer
-            attribution='&copy; <a href="https://carto.com/">CARTO</a>'
-            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+            attribution={TILE_ATTRIBUTION}
+            url={TILE_URL}
+            className={TILE_CLASS}
           />
 
           {/* Tracé GPS coloré */}

@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { getSpeedColor, formatRoundaboutRating, formatStopRating, getRoundaboutExplanation, getStopExplanation } from '@/lib/gpsEngine';
+import { TILE_ATTRIBUTION, TILE_CLASS, TILE_URL } from '@/lib/mapTiles';
 import 'leaflet/dist/leaflet.css';
 
 const popupStyle = {
@@ -179,8 +180,9 @@ export default function TripMapView({ trip, events, onRoundaboutClick }) {
   return (
     <MapContainer center={mapCenter} zoom={14} style={{ width: '100%', height: '100%' }}>
       <TileLayer
-        attribution='&copy; <a href="https://carto.com/">CARTO</a>'
-        url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+        attribution={TILE_ATTRIBUTION}
+        url={TILE_URL}
+        className={TILE_CLASS}
       />
 
       {/* Tracé GPS coloré par vitesse */}

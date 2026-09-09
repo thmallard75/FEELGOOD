@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { haversineDistance, formatRoundaboutRating } from '@/lib/gpsEngine';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer } from 'recharts';
 import { MapContainer, TileLayer, CircleMarker } from 'react-leaflet';
+import { TILE_ATTRIBUTION, TILE_CLASS, TILE_URL } from '@/lib/mapTiles';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { X, MapPin, Gauge, TrendingDown, Navigation, AlertTriangle, CheckCircle2 } from 'lucide-react';
@@ -299,7 +300,7 @@ export default function RoundaboutDetailModal({ event, trip, onClose }) {
               <p className="text-xs font-semibold text-foreground mb-2">Carte de l'approche</p>
               <div className="rounded-xl overflow-hidden border border-border" style={{ height: 220 }}>
                 <MapContainer center={[event.latitude, event.longitude]} zoom={17} style={{ width: '100%', height: '100%' }}>
-                  <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
+                  <TileLayer url={TILE_URL} className={TILE_CLASS} attribution={TILE_ATTRIBUTION} />
                   {approachData.map((p, i) => {
                     const color = p.dist >= 100 ? '#C8F230' : p.dist >= 50 ? '#F2C230' : '#ef4444';
                     return (
