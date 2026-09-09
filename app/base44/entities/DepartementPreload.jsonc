@@ -1,0 +1,82 @@
+{
+  "name": "DepartementPreload",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "description": "Code departement (01..95, 2A, 2B)"
+    },
+    "name": {
+      "type": "string"
+    },
+    "bbox": {
+      "type": "object",
+      "properties": {
+        "minLat": {
+          "type": "number"
+        },
+        "minLng": {
+          "type": "number"
+        },
+        "maxLat": {
+          "type": "number"
+        },
+        "maxLng": {
+          "type": "number"
+        }
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "downloading",
+        "complete",
+        "failed"
+      ],
+      "default": "pending"
+    },
+    "cells_total": {
+      "type": "integer",
+      "description": "Nombre de cellules 0.01deg couvertes par la bbox"
+    },
+    "cells_done": {
+      "type": "integer",
+      "description": "Cellules importees par l'ETL",
+      "default": 0
+    },
+    "last_sync": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "error": {
+      "type": "string"
+    },
+    "detected_from_trips": {
+      "type": "integer",
+      "description": "Nombre de trajets recents ayant traverse ce departement",
+      "default": 0
+    }
+  },
+  "required": [
+    "code"
+  ],
+  "rls": {
+    "create": {},
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

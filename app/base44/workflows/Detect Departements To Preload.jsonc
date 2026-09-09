@@ -1,0 +1,44 @@
+{
+  "trigger": {
+    "condition": null,
+    "config": {
+      "trigger_type": "scheduled",
+      "events": [],
+      "schedule_mode": "recurring",
+      "cron_expression": "0 6,18 * * *",
+      "one_time_date": null,
+      "timezone": "Europe/Berlin",
+      "interval_value": null,
+      "interval_unit": null,
+      "interval_anchor": null,
+      "ends_type": "never",
+      "ends_on_date": null,
+      "ends_after_count": null
+    }
+  },
+  "description": "Balaie les trajets des 14 derniers jours et enfile en pending les departements traverses pour l'ETL Geofabrik",
+  "name": "Detect Departements To Preload",
+  "definition": {
+    "document": {
+      "dsl": "1.0.0",
+      "name": "detect_departements_preload",
+      "version": "1.0",
+      "namespace": "base44"
+    },
+    "do": [
+      {
+        "detect": {
+          "call": "invoke_backend_function",
+          "with": {
+            "function_name": "detectDepartementsToPreload"
+          },
+          "then": "end",
+          "x-base44": {
+            "title": "Detecter departements",
+            "description": "Sweep trajets 14 derniers jours"
+          }
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "name": "OsmFeatureCache",
+  "type": "object",
+  "properties": {
+    "cache_key": {
+      "type": "string",
+      "description": "Clef : latitude_arrondie_longitude_arrondie_rayon"
+    },
+    "latitude": {
+      "type": "number"
+    },
+    "longitude": {
+      "type": "number"
+    },
+    "radius": {
+      "type": "integer"
+    },
+    "elements": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "description": "\u00c9l\u00e9ments bruts Overpass (nodes/ways) autour du point"
+    },
+    "osm_timestamp": {
+      "type": "string",
+      "description": "timestamp_osm_base renvoy\u00e9 par Overpass"
+    },
+    "retrieved_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "cache_key"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}
