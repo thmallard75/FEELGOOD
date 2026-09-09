@@ -1,0 +1,4 @@
+# pyosmium expose le module `osmium`. La version est figee : la 4.x a
+# reorganise l'API publique, et un `pip install osmium` non contraint peut
+# casser le job du jour au lendemain.
+osmium==4.3.1
