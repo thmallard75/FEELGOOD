@@ -10,9 +10,8 @@ on:
   push:
     branches:
       - main
-      # Permet de publier la demonstration avant la fusion de la PR ; cette
-      # ligne peut disparaitre une fois la branche fusionnee.
       - cursor/import-feelgood-app-cf00
+      - cursor/mobile-app-test-460e
     paths:
       - 'app/**'
       - '.github/workflows/pages.yml'

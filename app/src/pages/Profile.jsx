@@ -100,6 +100,10 @@ export default function Profile() {
   };
 
   const handleDeleteAccount = async () => {
+    if (base44.isDemo) {
+      base44.resetDemo();
+      return;
+    }
     try {
       await base44.functions.invoke('deleteUserData', {});
       toast.success('Vos données ont été supprimées. Vous allez être déconnecté.');
@@ -296,15 +300,28 @@ export default function Profile() {
         </Card>
       )}
 
-      {/* Logout */}
-      <Button
-        variant="outline"
-        onClick={handleLogout}
-        className="w-full border-destructive/30 text-destructive hover:bg-destructive/10 min-h-[44px]"
-      >
-        <LogOut className="w-4 h-4 mr-2" />
-        Se déconnecter
-      </Button>
+      {/* Logout / reset test */}
+      {base44.isDemo ? (
+        <Button
+          variant="outline"
+          onClick={() => {
+            base44.resetDemo();
+          }}
+          className="w-full min-h-[44px]"
+        >
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Réinitialiser les données de test
+        </Button>
+      ) : (
+        <Button
+          variant="outline"
+          onClick={handleLogout}
+          className="w-full border-destructive/30 text-destructive hover:bg-destructive/10 min-h-[44px]"
+        >
+          <LogOut className="w-4 h-4 mr-2" />
+          Se déconnecter
+        </Button>
+      )}
 
       {/* Delete Account — required by Apple */}
       <AlertDialog>

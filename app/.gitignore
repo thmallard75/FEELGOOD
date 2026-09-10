@@ -34,3 +34,19 @@ base44/.app.jsonc
 
 # Etat du backend de developpement (recree par le seed)
 devserver/.data/
+
+# Capacitor / Android / iOS (artefacts de build)
+android/app/build
+android/.gradle
+android/local.properties
+android/captures
+android/.idea
+*.iml
+android/app/src/main/assets/public
+ios/App/App/public
+ios/App/Pods
+ios/DerivedData
+*.apk
+*.aab
+*.ipa
+

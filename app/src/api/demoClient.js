@@ -6,12 +6,14 @@
  * devserver/export-demo.mjs. Les trajets, scores et evenements qu'il contient
  * ont ete calcules par les vraies fonctions backend au moment de l'export.
  *
- * Les ecritures restent en memoire : elles fonctionnent le temps de la visite
- * et disparaissent au rechargement.
+ * Les ecritures sont persistees dans localStorage (APK / PWA) pour survivre
+ * a un rechargement. Un instantane plus recent les remplace.
  */
 
 import { MemoryStore } from '@/lib/memoryStore';
 import { functionKey, SNAPSHOT_FILE } from '@/lib/demoSnapshot';
+
+const LS_KEY = 'feelgood-test-store-v1';
 
 class DemoUnavailable extends Error {
   constructor(what) {
@@ -63,7 +65,34 @@ export async function createDemoClient() {
   const snapshot = await res.json();
 
   const store = new MemoryStore({ actor: snapshot.user });
-  store.replaceAll(snapshot.entities);
+
+  let saved = null;
+  try {
+    saved = JSON.parse(localStorage.getItem(LS_KEY) || 'null');
+  } catch {
+    saved = null;
+  }
+
+  if (saved?.generated_at === snapshot.generated_at && saved.entities) {
+    if (saved.user) Object.assign(snapshot.user, saved.user);
+    store.replaceAll(saved.entities);
+  } else {
+    store.replaceAll(snapshot.entities);
+  }
+
+  const persist = () => {
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify({
+        generated_at: snapshot.generated_at,
+        user: snapshot.user,
+        entities: store.toJSON(),
+      }));
+    } catch {
+      // Quota depassee — le test continue en memoire.
+    }
+  };
+  store.onChange = persist;
+  persist();
 
   const entities = entityProxy(store);
 
@@ -72,10 +101,18 @@ export async function createDemoClient() {
     asServiceRole: { entities },
     auth: {
       async me() { return snapshot.user; },
-      async updateMe(data) { return Object.assign(snapshot.user, data); },
+      async updateMe(data) {
+        Object.assign(snapshot.user, data);
+        persist();
+        return snapshot.user;
+      },
       async isAuthenticated() { return true; },
       redirectToLogin() {},
       logout() {},
+    },
+    resetDemo() {
+      localStorage.removeItem(LS_KEY);
+      window.location.reload();
     },
     integrations: {
       Core: {

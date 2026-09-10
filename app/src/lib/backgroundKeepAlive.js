@@ -104,6 +104,15 @@ class BackgroundKeepAlive {
   // ── Service Worker ────────────────────────────────────────────────────────
 
   async _registerServiceWorker() {
+    // Capacitor embarque deja l'app : le SW du navigateur n'y est pas fiable
+    // (notifications, scope) et le GPS tourne dans le process natif.
+    if (typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.()) return;
+    try {
+      const { Capacitor } = await import('@capacitor/core');
+      if (Capacitor.isNativePlatform()) return;
+    } catch {
+      // Capacitor absent du build web classique — continuer.
+    }
     if (!('serviceWorker' in navigator)) return;
     try {
       // Chemins derives de la base : l'application peut etre servie depuis un

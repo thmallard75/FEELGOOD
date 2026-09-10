@@ -1,7 +1,7 @@
 import { Toaster } from "@/components/ui/toaster"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
-import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, HashRouter, Route, Routes } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
@@ -64,13 +64,15 @@ const AuthenticatedApp = () => {
   );
 };
 
+const Router = import.meta.env.VITE_DEMO_MODE === 'true' ? HashRouter : BrowserRouter;
+
 function App() {
   return (
     <AuthProvider>
       <QueryClientProvider client={queryClientInstance}>
-        {/* Le routage part de la base du build : sans cela, une application
-            servie depuis un sous-chemin ne reconnait plus aucune de ses URL. */}
-        <Router basename={import.meta.env.BASE_URL}>
+        {/* Le mode test (PWA / iOS) utilise le hash : pas de serveur pour
+            recrire les URL profondes. Hors demo, le basename suit le sous-chemin. */}
+        <Router basename={import.meta.env.VITE_DEMO_MODE === 'true' ? undefined : import.meta.env.BASE_URL}>
           <AuthenticatedApp />
         </Router>
         <Toaster />

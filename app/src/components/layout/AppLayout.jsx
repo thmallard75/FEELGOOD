@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { base44 } from '@/api/base44Client';
+import DemoBanner from '@/components/feelgood/DemoBanner';
 
 const BASE_NAV = [
   { path: '/', icon: LayoutDashboard, label: 'Accueil' },
@@ -76,10 +77,13 @@ export default function AppLayout() {
   // by always pushing a real history entry (React Router does this by default with BrowserRouter).
   // We add a landmark role on the root for screen readers.
 
+  const demoBannerH = import.meta.env.VITE_DEMO_MODE === 'true' ? 22 : 0;
+
   return (
     <div className="min-h-screen bg-background flex" id="app-root">
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex flex-col w-20 lg:w-64 border-r border-border bg-card/50 backdrop-blur-xl fixed h-full z-40">
+        <DemoBanner />
         <div className="p-4 lg:p-6 flex items-center gap-3" aria-label="FeelGood Conduite — Accueil">
           <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center flex-shrink-0" aria-hidden="true">
             <Car className="w-5 h-5 text-primary-foreground" aria-hidden="true" />
@@ -129,12 +133,13 @@ export default function AppLayout() {
         </div>
       </aside>
 
-      {/* Mobile Header — iOS safe-area top */}
+      {/* Mobile Header — iOS / Android safe-area top */}
       <div
-        className="md:hidden fixed top-0 left-0 right-0 bg-card/90 backdrop-blur-xl border-b border-border z-50 flex items-end justify-center"
-        style={{ paddingTop: 'env(safe-area-inset-top)', height: 'calc(env(safe-area-inset-top) + 52px)' }}
+        className="md:hidden fixed top-0 left-0 right-0 bg-card/90 backdrop-blur-xl border-b border-border z-50 flex flex-col"
+        style={{ paddingTop: 'env(safe-area-inset-top)' }}
       >
-        <div className="w-full flex items-center justify-center px-4 pb-2">
+        <DemoBanner />
+        <div className="h-[52px] w-full flex items-center justify-center px-4">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
               <Car className="w-4 h-4 text-primary-foreground" />
@@ -175,7 +180,7 @@ export default function AppLayout() {
       {/* Main Content */}
       <main
         className="flex-1 md:ml-20 lg:ml-64 pb-24 md:pb-0"
-        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 52px)' }}
+        style={{ paddingTop: `calc(env(safe-area-inset-top) + 52px + ${demoBannerH}px)` }}
       >
         <div className="md:pt-6 p-4 md:p-6 lg:p-8 max-w-7xl mx-auto">
           {/* Preserved tabs render without exit animation to keep query cache + scroll */}

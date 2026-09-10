@@ -1,7 +1,7 @@
 {
-  "name": "base44-app",
+  "name": "feelgood-conduite",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,15 +10,24 @@
     "dev:reset": "node -e \"require('node:fs').rmSync('devserver/.data',{recursive:true,force:true})\" && echo \"donnees de dev effacees\"",
     "demo:snapshot": "node --experimental-strip-types devserver/export-demo.mjs",
     "build:demo": "node devserver/build-demo.mjs",
+    "build:mobile": "node devserver/build-mobile.mjs",
+    "ios": "npm run build:mobile && npx cap open ios",
     "build": "vite build",
     "lint": "eslint . --quiet",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc -p ./jsconfig.json",
-    "preview": "vite preview"
+    "preview": "vite preview --host --port 4173"
   },
   "dependencies": {
     "@base44/sdk": "^0.8.48",
     "@base44/vite-plugin": "^1.0.36",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/cli": "^8.5.1",
+    "@capacitor/core": "^8.5.1",
+    "@capacitor/geolocation": "^8.2.2",
+    "@capacitor/ios": "^8.5.1",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.3",
     "@hello-pangea/dnd": "^17.0.0",
     "@hookform/resolvers": "^4.1.2",
     "@radix-ui/react-accordion": "^1.2.3",
