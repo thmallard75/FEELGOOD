@@ -14,13 +14,13 @@ import { join } from 'node:path';
 
 import { MemoryStore } from '../src/lib/memoryStore.js';
 
-const DATA_DIR = join(import.meta.dirname, '.data');
+const DATA_DIR = process.env.DATA_DIR || join(import.meta.dirname, '.data');
 const DATA_FILE = join(DATA_DIR, 'store.json');
 
 export const DEV_USER = {
-  id: 'devuser0000000000000001',
-  email: 'dev@feelgood.local',
-  full_name: 'Conducteur de demonstration',
+  id: process.env.FEELGOOD_USER_ID || 'user-local-1',
+  email: process.env.FEELGOOD_USER_EMAIL || 'moi@localhost',
+  full_name: process.env.FEELGOOD_USER_NAME || 'Conducteur',
   role: 'admin',
   created_date: '2026-01-05T09:00:00.000Z',
 };

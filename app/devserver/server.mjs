@@ -1,11 +1,10 @@
-// Backend de developpement local.
+// API FeelGood auto-hebergee (production Docker / npm start, et `npm run dev:local`).
 //
-// Reproduit les routes HTTP du backend Base44 que le SDK appelle, de sorte que
-// `npm run dev:local` fasse tourner l'application sans compte ni reseau. Les
-// fonctions ne sont pas simulees : ce sont celles de base44/functions qui
-// s'executent, via les substituts de devserver/shims.
+// Reproduit les routes HTTP attendues par l'app (entites + functions).
+// Les fonctions de base44/functions s'executent vraiment, via les shims
+// (pas d'appel a Base44). L'iPhone n'envoie que le GPS ; analyzeTrip
+// calcule les KPI ici.
 //
-// Lance par devserver/dev.mjs, ou seul avec :
 //   node --experimental-strip-types devserver/server.mjs
 
 import { createServer } from 'node:http';
@@ -19,17 +18,28 @@ const { DEV_USER, store } = await import('./store.mjs');
 const { invokeFunction, listFunctions } = await import('./functions.mjs');
 const { seed } = await import('./seed.mjs');
 
-const PORT = Number(process.env.DEV_API_PORT || 8787);
-const HOST = process.env.DEV_API_HOST || '127.0.0.1';
+const PORT = Number(process.env.PORT || process.env.DEV_API_PORT || 8787);
+const HOST = process.env.HOST || process.env.DEV_API_HOST || '127.0.0.1';
+const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
+
+function corsHeaders(req) {
+  // L'app iOS (Capacitor, scheme FeelGood://) envoie Origin hors http(s).
+  // Echo de l'origine si CORS_ORIGIN=* — sinon le WebView bloque le fetch.
+  const origin = CORS_ORIGIN === '*' ? (req?.headers?.origin || '*') : CORS_ORIGIN;
+  return {
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-service-key',
+    'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+    Vary: 'Origin',
+  };
+}
 
 function send(res, status, payload) {
   const body = payload === undefined ? '' : JSON.stringify(payload);
   res.writeHead(status, {
     'Content-Type': 'application/json',
     'Content-Length': Buffer.byteLength(body),
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': '*',
-    'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+    ...corsHeaders(res.req),
   });
   res.end(body);
 }
@@ -72,6 +82,12 @@ function publicSettings(appId) {
 }
 
 async function route(req, res, url) {
+  if (url.pathname === '/health' || url.pathname === '/api/health') {
+    return send(res, 200, { ok: true, service: 'feelgood-api' });
+  }
+  if (url.pathname === '/' && req.method === 'GET') {
+    return send(res, 200, { ok: true, service: 'feelgood-api', health: '/health' });
+  }
   const parts = url.pathname.replace(/^\/+|\/+$/g, '').split('/');
   // Attendu : api / apps / <appId|public> / ...
   if (parts[0] !== 'api' || parts[1] !== 'apps') {
@@ -104,7 +120,7 @@ async function route(req, res, url) {
     if (req.headers['x-service-key']) headers['x-service-key'] = req.headers['x-service-key'];
     const started = Date.now();
     const { status, data } = await invokeFunction(name, payload, headers);
-    console.log(`[dev-api] fonction ${name} -> ${status} (${Date.now() - started} ms)`);
+    console.log(`[api] fonction ${name} -> ${status} (${Date.now() - started} ms)`);
     return send(res, status, data);
   }
 
@@ -186,7 +202,7 @@ await seed();
 
 server.listen(PORT, HOST, () => {
   const counts = store.counts();
-  console.log(`[dev-api] pret sur http://${HOST}:${PORT}`);
-  console.log(`[dev-api] entites: ${Object.entries(counts).map(([k, v]) => `${k}=${v}`).join(' ') || '(vide)'}`);
-  console.log(`[dev-api] fonctions: ${listFunctions().join(', ')}`);
+  console.log(`[api] pret sur http://${HOST}:${PORT}`);
+  console.log(`[api] entites: ${Object.entries(counts).map(([k, v]) => `${k}=${v}`).join(' ') || '(vide)'}`);
+  console.log(`[api] fonctions: ${listFunctions().join(', ')}`);
 });

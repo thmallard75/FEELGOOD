@@ -1,0 +1,21 @@
+services:
+  api:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    # En production avec Caddy sur la meme machine, restreins a :
+    #   "127.0.0.1:8787:8787"
+    ports:
+      - "8787:8787"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8787
+      DATA_DIR: /data
+      FEELGOOD_SEED: "0"
+      CORS_ORIGIN: "*"
+    volumes:
+      - feelgood-data:/data
+
+volumes:
+  feelgood-data:

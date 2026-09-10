@@ -1,0 +1,11 @@
+# Reverse-proxy HTTPS vers l'API FeelGood (Caddy sur la meme machine que Docker).
+# Remplace api.mondomaine.fr par TON nom de domaine.
+# analyzeTrip peut depasser 60 s (Overpass) : allonge le timeout de lecture.
+
+api.mondomaine.fr {
+	reverse_proxy 127.0.0.1:8787 {
+		transport http {
+			read_timeout 180s
+		}
+	}
+}

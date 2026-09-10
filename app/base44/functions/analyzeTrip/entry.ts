@@ -647,12 +647,16 @@ Deno.serve(async (req) => {
 
     const rawTrack = trip.gps_track || [];
     if (rawTrack.length < 5) {
+      const shortKpis = {
+        overall_score: 100, speed_score: 100, smoothness_score: 100,
+        anticipation_score: 100, stop_score: 100,
+        serenity_index: 100, serenity_label: 'Sereine',
+        serenity_summary: 'Trajet trop court pour une analyse approfondie.',
+      };
       await base44.asServiceRole.entities.Trip.update(tripId, {
-        status: 'completed', overall_score: 100, speed_score: 100,
-        smoothness_score: 100, anticipation_score: 100, stop_score: 100,
-        serenity_index: 100, serenity_label: 'Sereine', serenity_summary: 'Trajet trop court pour une analyse approfondie.',
+        status: 'completed', ...shortKpis,
       });
-      return Response.json({ ok: true, note: 'Trace GPS trop courte' });
+      return Response.json({ ok: true, note: 'Trace GPS trop courte', overall_score: 100, kpis: shortKpis });
     }
 
     // Pré-traitement GPS : rejet des points aberrants + lissage léger + confiance
@@ -756,7 +760,26 @@ Deno.serve(async (req) => {
     }
 
     console.log(`[analyzeTrip] Terminé — score=${scores.overall_score}, events=${eventsToSave.length}`);
-    return Response.json({ ok: true, overall_score: scores.overall_score, events_count: eventsToSave.length });
+    return Response.json({
+      ok: true,
+      overall_score: scores.overall_score,
+      events_count: eventsToSave.length,
+      kpis: {
+        ...scores,
+        harsh_braking_count: harshResult.harshBrakingCount,
+        harsh_acceleration_count: harshResult.harshAccelCount,
+        phone_usage_seconds: distractionResult.phoneUsageSeconds,
+        fatigue_summary: fatigueSummary,
+        distraction_summary: distractionResult.summary,
+        serenity_index: serenity.serenity_index,
+        serenity_label: serenity.label,
+        serenity_primary_axis: serenity.primary_axis,
+        serenity_secondary_axis: serenity.secondary_axis || null,
+        serenity_summary: serenity.one_line_summary,
+        osm_coverage: osmData.coverage || 'full',
+        data_confidence: Math.round(dataConfidence * 100) / 100,
+      },
+    });
 
   } catch (err) {
     console.error('[analyzeTrip] Erreur:', err.message);

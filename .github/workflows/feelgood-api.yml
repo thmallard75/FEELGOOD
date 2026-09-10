@@ -1,0 +1,52 @@
+name: API FeelGood
+
+# Verifie que le serveur auto-heberge calcule les KPI (sans Base44).
+
+on:
+  push:
+    branches:
+      - main
+      - cursor/mobile-app-test-460e
+      - cursor/fix-trip-after-drive-592e
+    paths:
+      - 'app/devserver/**'
+      - 'app/base44/**'
+      - 'app/src/lib/memoryStore.js'
+      - 'app/Dockerfile'
+      - '.github/workflows/feelgood-api.yml'
+  pull_request:
+    paths:
+      - 'app/devserver/**'
+      - 'app/base44/**'
+      - 'app/src/lib/memoryStore.js'
+      - 'app/Dockerfile'
+      - '.github/workflows/feelgood-api.yml'
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Demarrer l'API
+        working-directory: app
+        run: |
+          FEELGOOD_SEED=0 HOST=127.0.0.1 PORT=8787 DATA_DIR=/tmp/feelgood-ci \
+            node --experimental-strip-types devserver/server.mjs &
+          echo $! > /tmp/feelgood-api.pid
+          for i in $(seq 1 50); do
+            curl -sf http://127.0.0.1:8787/health && exit 0
+            sleep 0.2
+          done
+          echo "API injoignable"
+          exit 1
+
+      - name: GPS in, KPI out
+        working-directory: app
+        run: node --experimental-strip-types devserver/smoke.mjs

@@ -1,5 +1,5 @@
-// Lance ensemble le backend de developpement et Vite, en pointant le proxy
-// /api de @base44/vite-plugin vers le backend local.
+// Lance ensemble l'API auto-hebergee et Vite. Le proxy /api de Vite
+// pointe sur le serveur local (port 8787) — pas Base44.
 
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
@@ -43,4 +43,6 @@ run('api', process.execPath, ['--experimental-strip-types', 'devserver/server.mj
 
 run('vite', process.execPath, ['node_modules/vite/bin/vite.js', ...process.argv.slice(2)], {
   VITE_BASE44_APP_BASE_URL: API_URL,
+  VITE_SELF_HOSTED: 'true',
+  VITE_API_URL: '',
 });

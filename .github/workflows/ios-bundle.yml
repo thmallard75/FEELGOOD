@@ -35,6 +35,12 @@ jobs:
         working-directory: app
         run: npm ci
 
-      - name: Build web + Capacitor iOS
+      - name: Compile App Store (client HTTP, OSM hors de l'app)
+        working-directory: app
+        env:
+          VITE_API_URL: https://api.example.com
+        run: npx vite build --base /
+
+      - name: Build web + Capacitor (demo sans serveur)
         working-directory: app
         run: npm run build:mobile

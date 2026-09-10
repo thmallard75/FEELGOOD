@@ -41,6 +41,13 @@ const AuthenticatedApp = () => {
       navigateToLogin();
       return null;
     }
+    return (
+      <div className="fixed inset-0 flex flex-col items-center justify-center gap-3 bg-background px-6 text-center">
+        <p className="text-lg font-semibold text-foreground">Serveur FeelGood injoignable</p>
+        <p className="text-sm text-muted-foreground max-w-sm">{authError.message}</p>
+        <p className="text-xs text-muted-foreground">Vérifie que ton API tourne et que VITE_API_URL pointe vers son HTTPS.</p>
+      </div>
+    );
   }
 
   return (
