@@ -1,0 +1,142 @@
+{
+  "name": "OsmTileCache",
+  "type": "object",
+  "properties": {
+    "cell_key": {
+      "type": "string",
+      "description": "Clef de cellule de grille (lat_idx_lng_idx)"
+    },
+    "min_lat": {
+      "type": "number"
+    },
+    "min_lng": {
+      "type": "number"
+    },
+    "max_lat": {
+      "type": "number"
+    },
+    "max_lng": {
+      "type": "number"
+    },
+    "road_data": {
+      "type": "object",
+      "description": "Contexte routier pars\u00e9 et compact pour cette cellule",
+      "properties": {
+        "roundabouts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "lat": {
+                "type": "number"
+              },
+              "lon": {
+                "type": "number"
+              },
+              "maxspeed": {
+                "type": "number"
+              },
+              "id": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "speedLimits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "lat_start": {
+                "type": "number"
+              },
+              "lon_start": {
+                "type": "number"
+              },
+              "lat_end": {
+                "type": "number"
+              },
+              "lon_end": {
+                "type": "number"
+              },
+              "speed": {
+                "type": "number"
+              },
+              "type": {
+                "type": "string"
+              },
+              "highway": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "osm_id": {
+                "type": "number"
+              },
+              "explicit": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "stops": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "lat": {
+                "type": "number"
+              },
+              "lon": {
+                "type": "number"
+              },
+              "id": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "element_count": {
+      "type": "integer"
+    },
+    "fetched_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "overpass",
+        "static"
+      ]
+    }
+  },
+  "required": [
+    "cell_key"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

@@ -1,0 +1,180 @@
+{
+  "name": "DrivingEvent",
+  "type": "object",
+  "properties": {
+    "trip_id": {
+      "type": "string"
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "harsh_braking",
+        "harsh_acceleration",
+        "sharp_turn",
+        "speeding",
+        "stop_respected",
+        "stop_violated",
+        "roundabout_zone1",
+        "roundabout_zone2",
+        "roundabout_zone3",
+        "roundabout_good",
+        "roundabout_poor",
+        "roundabout_dangerous",
+        "phone_usage",
+        "good_anticipation",
+        "gps_lost",
+        "gps_resumed"
+      ]
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "confidence": {
+      "type": "string",
+      "enum": [
+        "high",
+        "medium",
+        "low",
+        "insufficient_data"
+      ]
+    },
+    "latitude": {
+      "type": "number"
+    },
+    "longitude": {
+      "type": "number"
+    },
+    "speed_kmh": {
+      "type": "number"
+    },
+    "speed_limit_kmh": {
+      "type": "number"
+    },
+    "road_type": {
+      "type": "string",
+      "enum": [
+        "urban",
+        "periurban",
+        "highway"
+      ]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "description": {
+      "type": "string"
+    },
+    "acceleration_value": {
+      "type": "number",
+      "description": "En m/s\u00b2"
+    },
+    "context": {
+      "type": "string"
+    },
+    "roundabout_detail": {
+      "type": "object",
+      "properties": {
+        "deceleration_zone": {
+          "type": "string",
+          "enum": [
+            "zone1",
+            "zone2",
+            "zone3",
+            "none",
+            "already_slow"
+          ]
+        },
+        "entry_speed_kmh": {
+          "type": "number"
+        },
+        "speed_at_150m": {
+          "type": "number"
+        },
+        "speed_at_100m": {
+          "type": "number"
+        },
+        "speed_at_65m": {
+          "type": "number"
+        },
+        "speed_at_entry": {
+          "type": "number"
+        },
+        "rating": {
+          "type": "string",
+          "enum": [
+            "perfect",
+            "very_good",
+            "good",
+            "late",
+            "dangerous"
+          ]
+        }
+      }
+    },
+    "stop_detail": {
+      "type": "object",
+      "properties": {
+        "speed_at_30m": {
+          "type": "number"
+        },
+        "speed_at_10m": {
+          "type": "number"
+        },
+        "min_speed_kmh": {
+          "type": "number"
+        },
+        "respected": {
+          "type": "boolean"
+        },
+        "rating": {
+          "type": "string",
+          "enum": [
+            "respected",
+            "glisse",
+            "dangerous"
+          ]
+        }
+      }
+    }
+  },
+  "required": [
+    "trip_id",
+    "event_type",
+    "latitude",
+    "longitude"
+  ],
+  "rls": {
+    "create": {},
+    "read": {},
+    "update": {
+      "$or": [
+        {
+          "created_by": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "delete": {
+      "$or": [
+        {
+          "created_by": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    }
+  }
+}

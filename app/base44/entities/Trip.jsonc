@@ -1,0 +1,419 @@
+{
+  "name": "Trip",
+  "type": "object",
+  "properties": {
+    "start_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "end_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "duration_minutes": {
+      "type": "number"
+    },
+    "distance_km": {
+      "type": "number"
+    },
+    "start_latitude": {
+      "type": "number"
+    },
+    "start_longitude": {
+      "type": "number"
+    },
+    "end_latitude": {
+      "type": "number"
+    },
+    "end_longitude": {
+      "type": "number"
+    },
+    "start_address": {
+      "type": "string"
+    },
+    "end_address": {
+      "type": "string"
+    },
+    "avg_speed_kmh": {
+      "type": "number"
+    },
+    "max_speed_kmh": {
+      "type": "number"
+    },
+    "road_types": {
+      "type": "object",
+      "properties": {
+        "urban": {
+          "type": "number"
+        },
+        "periurban": {
+          "type": "number"
+        },
+        "highway": {
+          "type": "number"
+        }
+      }
+    },
+    "overall_score": {
+      "type": "number",
+      "description": "Score global 0-100"
+    },
+    "anticipation_score": {
+      "type": "number"
+    },
+    "stop_score": {
+      "type": "number"
+    },
+    "speed_score": {
+      "type": "number"
+    },
+    "smoothness_score": {
+      "type": "number"
+    },
+    "distraction_score": {
+      "type": "number"
+    },
+    "harsh_braking_count": {
+      "type": "integer"
+    },
+    "harsh_acceleration_count": {
+      "type": "integer"
+    },
+    "speeding_count": {
+      "type": "integer"
+    },
+    "phone_usage_seconds": {
+      "type": "number"
+    },
+    "stops_respected": {
+      "type": "integer"
+    },
+    "stops_violated": {
+      "type": "integer"
+    },
+    "roundabouts_count": {
+      "type": "integer"
+    },
+    "roundabouts_good": {
+      "type": "integer"
+    },
+    "roundabouts_poor": {
+      "type": "integer"
+    },
+    "gps_points_count": {
+      "type": "integer"
+    },
+    "gps_low_precision_count": {
+      "type": "integer"
+    },
+    "gps_track": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "lat": {
+            "type": "number"
+          },
+          "lng": {
+            "type": "number"
+          },
+          "speed_kmh": {
+            "type": "number"
+          },
+          "accuracy_m": {
+            "type": "number"
+          },
+          "timestamp": {
+            "type": "string"
+          },
+          "road_type": {
+            "type": "string"
+          },
+          "speed_limit": {
+            "type": "number"
+          },
+          "low_precision": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "distraction_signals": {
+      "type": "array",
+      "description": "Signaux bruts de distraction capt\u00e9s pendant la conduite (visibility/touch) \u2014 interpr\u00e9t\u00e9s c\u00f4t\u00e9 backend",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "bg_start",
+              "bg_end",
+              "touch_start",
+              "touch_end"
+            ]
+          },
+          "t": {
+            "type": "number",
+            "description": "Timestamp epoch ms"
+          }
+        },
+        "required": [
+          "type",
+          "t"
+        ]
+      }
+    },
+    "road_elements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "roundabout",
+              "stop",
+              "traffic_light",
+              "school_zone",
+              "zone30"
+            ]
+          },
+          "lat": {
+            "type": "number"
+          },
+          "lng": {
+            "type": "number"
+          },
+          "detected_at_distance_m": {
+            "type": "number"
+          },
+          "detected_at_timestamp": {
+            "type": "string"
+          },
+          "speed_limit_kmh": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "fatigue_summary": {
+      "type": "object",
+      "description": "R\u00e9sum\u00e9 du module fatigue pour ce trajet (calcul\u00e9 backend)",
+      "properties": {
+        "alertCount": {
+          "type": "integer"
+        },
+        "scorePenalty": {
+          "type": "number"
+        },
+        "hasFatigueMention": {
+          "type": "boolean"
+        },
+        "alerts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "timestamp": {
+                "type": "number"
+              },
+              "isNight": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    },
+    "distraction_summary": {
+      "type": "object",
+      "description": "R\u00e9sum\u00e9 du module distraction pour ce trajet (calcul\u00e9 backend)",
+      "properties": {
+        "count": {
+          "type": "integer"
+        },
+        "scorePenalty": {
+          "type": "number"
+        },
+        "hasRedAlert": {
+          "type": "boolean"
+        },
+        "hasHighSpeed": {
+          "type": "boolean"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "duration_ms": {
+                "type": "number"
+              },
+              "duration_sec": {
+                "type": "number"
+              },
+              "speed_kmh": {
+                "type": "number"
+              },
+              "severity": {
+                "type": "string"
+              },
+              "timestamp": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "is_high_speed": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    },
+    "ai_comments": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "weather": {
+      "type": "string",
+      "enum": [
+        "clear",
+        "rain",
+        "fog",
+        "snow",
+        "unknown"
+      ]
+    },
+    "traffic_level": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "unknown"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "recording",
+        "paused",
+        "pending_analysis",
+        "completed",
+        "syncing",
+        "pending_osm"
+      ],
+      "default": "completed"
+    },
+    "osm_error": {
+      "type": "string",
+      "description": "Erreur OSM en cas d'\u00e9chec de l'analyse"
+    },
+    "serenity_index": {
+      "type": "number",
+      "description": "Indice de s\u00e9r\u00e9nit\u00e9 contextuel 0-100 (LLM)"
+    },
+    "serenity_label": {
+      "type": "string",
+      "enum": [
+        "Sereine",
+        "Stable",
+        "\u00c0 apaiser",
+        "\u00c0 accompagner",
+        "Indicatif"
+      ]
+    },
+    "serenity_primary_axis": {
+      "type": "string"
+    },
+    "serenity_secondary_axis": {
+      "type": "string"
+    },
+    "serenity_summary": {
+      "type": "string"
+    },
+    "context_note": {
+      "type": "string"
+    },
+    "osm_coverage": {
+      "type": "string",
+      "enum": [
+        "full",
+        "partial",
+        "none"
+      ]
+    },
+    "data_confidence": {
+      "type": "number",
+      "description": "Confiance GPS 0-1"
+    },
+    "coach_review": {
+      "type": "object",
+      "description": "Bilan moniteur (KPI + erreurs + axes d'am\u00e9lioration)",
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "axes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "advice": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "level": {
+                "type": "string"
+              },
+              "category": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "kpis": {
+          "type": "object"
+        },
+        "source": {
+          "type": "string"
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  },
+  "required": [
+    "start_time",
+    "status"
+  ]
+}

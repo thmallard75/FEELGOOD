@@ -1,0 +1,39 @@
+name: Bundle iOS
+
+# Verifie que le site de test se construit et se synchronise dans le projet
+# Xcode. La compilation native (ipa) se fait sur un Mac, pas ici.
+
+on:
+  push:
+    branches:
+      - main
+      - cursor/mobile-app-test-460e
+    paths:
+      - 'app/**'
+      - '.github/workflows/ios-bundle.yml'
+  pull_request:
+    paths:
+      - 'app/**'
+      - '.github/workflows/ios-bundle.yml'
+  workflow_dispatch:
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install deps
+        working-directory: app
+        run: npm ci
+
+      - name: Build web + Capacitor iOS
+        working-directory: app
+        run: npm run build:mobile

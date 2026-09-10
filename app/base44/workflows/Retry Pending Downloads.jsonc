@@ -1,0 +1,44 @@
+{
+  "description": "Reprend automatiquement tous les t\u00e9l\u00e9chargements de carte r\u00e9gionaux interrompus ou \u00e9chou\u00e9s en r\u00e9-invoquant le pr\u00e9-fetch par tuiles.",
+  "name": "Retry Pending Downloads",
+  "trigger": {
+    "condition": null,
+    "config": {
+      "trigger_type": "scheduled",
+      "events": [],
+      "schedule_mode": "recurring",
+      "cron_expression": "*/15 * * * *",
+      "one_time_date": null,
+      "timezone": "Europe/Berlin",
+      "interval_value": null,
+      "interval_unit": null,
+      "interval_anchor": null,
+      "ends_type": "never",
+      "ends_on_date": null,
+      "ends_after_count": null
+    }
+  },
+  "definition": {
+    "document": {
+      "dsl": "1.0.0",
+      "name": "retry_pending_downloads",
+      "version": "1.0",
+      "namespace": "base44"
+    },
+    "do": [
+      {
+        "retry_downloads": {
+          "call": "invoke_backend_function",
+          "with": {
+            "function_name": "retryPendingDownloads"
+          },
+          "then": "end",
+          "x-base44": {
+            "title": "Reprendre les t\u00e9l\u00e9chargements",
+            "description": "Pr\u00e9-fetch des r\u00e9gions en cours"
+          }
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "name": "Group",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Nom du groupe"
+    },
+    "invite_code": {
+      "type": "string",
+      "description": "Code d'invitation unique"
+    },
+    "member_emails": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Emails des membres du groupe"
+    },
+    "created_by_name": {
+      "type": "string",
+      "description": "Nom du créateur"
+    }
+  },
+  "required": ["name", "invite_code"],
+  "rls": {
+    "create": {
+      "user_condition": { "email": { "$exists": true } }
+    },
+    "read": {},
+    "update": {
+      "$or": [
+        { "created_by": "{{user.email}}" },
+        { "user_condition": { "role": "admin" } }
+      ]
+    },
+    "delete": {
+      "$or": [
+        { "created_by": "{{user.email}}" },
+        { "user_condition": { "role": "admin" } }
+      ]
+    }
+  }
+}
