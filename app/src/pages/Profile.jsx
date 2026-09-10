@@ -273,7 +273,7 @@ export default function Profile() {
       </Card>
 
       {/* Admin: Recalculer tous les trajets */}
-      {user?.role === 'admin' && (
+      {user?.role === 'admin' && !base44.isDemo && (
         <Card className="p-5 bg-card border-border space-y-3">
           <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
             <RefreshCw className="w-4 h-4 text-primary" />
