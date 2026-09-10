@@ -327,6 +327,10 @@ export default function Profile() {
         </Button>
       )}
 
+      <p className="text-center text-xs text-muted-foreground">
+        <a href="/confidentialite" className="hover:underline">Politique de confidentialité</a>
+      </p>
+
       {/* Delete Account — required by Apple */}
       <AlertDialog>
         <AlertDialogTrigger asChild>

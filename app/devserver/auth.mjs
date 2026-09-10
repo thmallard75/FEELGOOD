@@ -55,7 +55,7 @@ export function verifyJwt(token) {
 
 export function publicUser(user) {
   if (!user) return null;
-  const { password_hash, ...rest } = user;
+  const { password_hash: _ph, oauth: _oauth, ...rest } = user;
   return rest;
 }
 
@@ -70,12 +70,19 @@ export function findUserById(id) {
 }
 
 export function hashPassword(password, salt = randomBytes(16).toString('hex')) {
-  const hash = scryptSync(password, salt, 32).toString('hex');
+  const pwd = String(password);
+  if (pwd.length > 128) {
+    const err = new Error('Mot de passe trop long');
+    err.status = 400;
+    throw err;
+  }
+  const hash = scryptSync(pwd, salt, 32).toString('hex');
   return `${salt}:${hash}`;
 }
 
 function checkPassword(password, stored) {
   if (!stored || !password) return false;
+  if (String(password).length > 128) return false;
   const [salt, hash] = String(stored).split(':');
   if (!salt || !hash) return false;
   const next = scryptSync(password, salt, 32);
@@ -87,7 +94,13 @@ export function upsertOAuthUser({ email, full_name, provider, providerId }) {
   const normalized = String(email).trim().toLowerCase();
   let user = findUserByEmail(normalized);
   if (user) {
-    if (user.password_hash && !user.oauth?.[provider]) {
+    const linked = user.oauth?.[provider];
+    if (linked && String(linked) !== String(providerId)) {
+      const err = new Error('Ce compte est déjà lié à un autre identifiant.');
+      err.status = 409;
+      throw err;
+    }
+    if (user.password_hash && !linked) {
       const err = new Error('Un compte existe déjà avec cet e-mail. Connecte-toi d’abord avec ton mot de passe.');
       err.status = 409;
       throw err;
@@ -119,6 +132,11 @@ export function registerEmailUser({ email, password, full_name }) {
   }
   if (!password || String(password).length < 8) {
     const err = new Error('Mot de passe : 8 caractères minimum');
+    err.status = 400;
+    throw err;
+  }
+  if (String(password).length > 128) {
+    const err = new Error('Mot de passe trop long');
     err.status = 400;
     throw err;
   }

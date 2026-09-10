@@ -30,6 +30,18 @@ export default defineConfig({
     },
   },
   plugins: [
+    {
+      name: 'feelgood-privacy-path',
+      configureServer(server) {
+        server.middlewares.use((req, _res, next) => {
+          const pathName = req.url ? req.url.split('?')[0].replace(/\/+$/, '') : '';
+          if (pathName === '/confidentialite' || pathName === '/privacy') {
+            req.url = '/confidentialite.html';
+          }
+          next();
+        });
+      },
+    },
     ...(isDemo ? [{
       name: 'feelgood-deno-shims',
       enforce: 'pre',

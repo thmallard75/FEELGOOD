@@ -287,7 +287,7 @@ export default function ParentDashboard() {
           link.status === 'pending' ? (
             <Card key={link.id} className="p-5 border-border bg-card space-y-3">
               <p className="text-sm font-medium text-foreground">
-                Invitation de {link.young_driver_name || link.young_driver_email}
+                Une invitation est en attente
               </p>
               <p className="text-xs text-muted-foreground">
                 Saisissez le code que le conducteur vous a montré (ou envoyé par e-mail) pour voir ses scores.

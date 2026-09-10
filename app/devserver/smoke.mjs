@@ -211,6 +211,24 @@ if (rewrite.status !== 403) fail(`parent rewrite devrait etre 403, pas ${rewrite
 const parentView = await req('GET', `/api/apps/${APP}/entities/ParentLink/${invite.data.id}`);
 if (!parentView.ok) fail(`parent GET invitation -> ${parentView.status}`);
 if (parentView.data.invite_code) fail('le parent ne doit pas lire invite_code');
+if (parentView.data.young_driver_email) fail('le parent pending ne doit pas lire young_driver_email');
+const parentDel = await req('DELETE', `/api/apps/${APP}/entities/ParentLink/${invite.data.id}`);
+if (parentDel.ok) fail(`parent a pu supprimer l'invitation (${parentDel.status})`);
+const oauthMe = await req('PUT', `/api/apps/${APP}/entities/User/me`, {
+  oauth: { google: 'stolen-sub' },
+  role: 'admin',
+  email: 'hijack@evil.example',
+});
+if (!oauthMe.ok) fail(`User/me -> ${oauthMe.status}`);
+if (oauthMe.data.oauth || oauthMe.data.role === 'admin' || oauthMe.data.email !== parentEmail) {
+  fail(`User/me a honore des champs interdits: ${JSON.stringify(oauthMe.data)}`);
+}
+const huge = await req('POST', `/api/apps/${APP}/auth/register`, {
+  email: `huge-${Date.now()}@feelgood.local`,
+  password: 'x'.repeat(129),
+  full_name: 'Huge',
+});
+if (huge.status !== 400) fail(`mot de passe trop long devrait etre 400, pas ${huge.status}`);
 const noCode = await req('PUT', `/api/apps/${APP}/entities/ParentLink/bulk`, [
   { id: invite.data.id, status: 'active' },
 ]);

@@ -45,11 +45,17 @@ function isAsset(urlPath) {
   return /\.[A-Za-z0-9]{1,8}$/.test(urlPath.split('?')[0]);
 }
 
+const PUBLIC_PAGES = {
+  '/confidentialite': 'confidentialite.html',
+  '/privacy': 'confidentialite.html',
+};
+
 export function serveWeb(req, res, url, extraHeaders = {}) {
   if (req.method !== 'GET' && req.method !== 'HEAD') return false;
   if (!webEnabled()) return false;
 
-  let file = safePath(url.pathname);
+  const publicPage = PUBLIC_PAGES[url.pathname.replace(/\/+$/, '') || '/'];
+  let file = publicPage ? join(WEB_ROOT, publicPage) : safePath(url.pathname);
   if (!file) return false;
 
   try {
@@ -58,7 +64,7 @@ export function serveWeb(req, res, url, extraHeaders = {}) {
       file = join(WEB_ROOT, 'index.html');
     }
     const stats = statSync(file);
-    const html = file.endsWith(`${sep}index.html`) || file.endsWith('/index.html');
+    const html = file.endsWith('.html');
     res.writeHead(200, {
       'Content-Type': mime(file),
       'Content-Length': stats.size,

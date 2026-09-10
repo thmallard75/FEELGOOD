@@ -21,6 +21,7 @@ const {
   scopedQuery,
   canRead,
   canWrite,
+  canDelete,
   parentLinkPatchAllowed,
   parentOwnedPatch,
   presentRecord,
@@ -85,9 +86,20 @@ function redirect(res, location) {
   res.end();
 }
 
-async function readRaw(req) {
+const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 2_000_000);
+
+async function readRaw(req, max = MAX_BODY_BYTES) {
   const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
+  let n = 0;
+  for await (const chunk of req) {
+    n += chunk.length;
+    if (n > max) {
+      const err = new Error('Requete trop volumineuse');
+      err.status = 413;
+      throw err;
+    }
+    chunks.push(chunk);
+  }
   return Buffer.concat(chunks).toString('utf8');
 }
 
@@ -286,11 +298,11 @@ async function entitiesRoute(req, res, url, rest, user) {
   if (entity === 'User' && tail === 'me') {
     if (req.method === 'PUT') {
       const patch = await readJson(req) || {};
-      delete patch.id;
-      delete patch.email;
-      delete patch.password_hash;
-      delete patch.role;
-      store.update('User', user.id, patch);
+      const allowed = {};
+      for (const key of ['full_name', 'profile_type', 'notifications', 'active_reward']) {
+        if (patch[key] !== undefined) allowed[key] = patch[key];
+      }
+      store.update('User', user.id, allowed);
     }
     return send(res, 200, auth.publicUser(store.get('User', user.id) || user));
   }
@@ -378,12 +390,18 @@ async function entitiesRoute(req, res, url, rest, user) {
     case 'DELETE': {
       if (tail) {
         const rec = store.get(entity, tail);
-        if (!canWrite(entity, rec, user) || !store.remove(entity, tail)) {
+        if (!canDelete(entity, rec, user) || !store.remove(entity, tail)) {
           return send(res, 404, { error: `${entity} ${tail} introuvable` });
         }
         return send(res, 200, { ok: true });
       }
       const q = scopedQuery(entity, user, await readJson(req));
+      if (entity === 'ParentLink') {
+        const rows = store.query(entity, { q });
+        if (rows.some((rec) => !canDelete(entity, rec, user))) {
+          return send(res, 403, { error: 'Suppression parent interdite' });
+        }
+      }
       return send(res, 200, store.deleteMany(entity, q));
     }
     default:
@@ -407,11 +425,21 @@ const server = createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   route(req, res, url).catch((e) => {
     console.error('[dev-api] erreur non rattrapee:', e);
-    send(res, 500, { error: e.message });
+    send(res, e.status || 500, { error: e.message });
   });
 });
 
+await store.ready();
 await seed();
+
+async function shutdown(signal) {
+  console.log(`[api] ${signal} — sauvegarde`);
+  try { await store.flush(); } catch (e) { console.error('[api] flush:', e.message); }
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 4000).unref?.();
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 server.listen(PORT, HOST, () => {
   const counts = store.counts();
@@ -421,4 +449,5 @@ server.listen(PORT, HOST, () => {
   console.log(`[api] entites: ${Object.entries(counts).map(([k, v]) => `${k}=${v}`).join(' ') || '(vide)'}`);
   console.log(`[api] fonctions: ${listFunctions().join(', ')}`);
   console.log(`[api] web: ${webEnabled() ? 'build Vite (connexion reelle)' : 'API seule'}`);
+  console.log(`[api] persistance: ${store.backend}`);
 });

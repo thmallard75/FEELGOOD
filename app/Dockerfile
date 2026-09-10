@@ -15,6 +15,7 @@ RUN npm run build
 # --- API Node + fichiers statiques ---
 FROM node:22-bookworm-slim
 WORKDIR /app
+RUN npm install --omit=dev --ignore-scripts pg@8.16.3
 
 COPY base44 ./base44
 COPY src/lib/memoryStore.js ./src/lib/memoryStore.js

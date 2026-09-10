@@ -90,11 +90,11 @@ function parentStatsFrom(trips) {
 
 export async function seed({ force = false } = {}) {
   if (process.env.FEELGOOD_SEED === '0' && !force) {
-    if (store.load()) console.log('[api] etat recharge depuis DATA_DIR');
+    if (store.restored) console.log('[api] etat recharge (comptes et trajets conserves)');
     else console.log('[api] magasin vide — les trajets arriveront depuis l\'app');
     return;
   }
-  if (!force && store.load()) {
+  if (!force && store.restored) {
     console.log('[dev-api] etat precedent recharge (npm run dev:reset pour repartir du seed)');
     return;
   }

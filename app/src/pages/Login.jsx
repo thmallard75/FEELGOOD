@@ -78,7 +78,7 @@ export default function Login({ onAuthenticated }) {
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="password">Mot de passe</Label>
-          <Input id="password" type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={mode === 'register' ? 'new-password' : 'current-password'} />
+          <Input id="password" type="password" required minLength={8} maxLength={128} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={mode === 'register' ? 'new-password' : 'current-password'} />
         </div>
         {error && <p className="text-sm text-destructive">{error}</p>}
         <Button type="submit" className="w-full h-11" disabled={busy}>
@@ -93,6 +93,9 @@ export default function Login({ onAuthenticated }) {
       >
         {mode === 'login' ? 'Pas encore de compte ? Inscription' : 'Déjà un compte ? Connexion'}
       </button>
+      <p className="text-center text-xs text-muted-foreground mt-6">
+        <a href="/confidentialite" className="underline-offset-2 hover:underline">Confidentialité</a>
+      </p>
     </AuthLayout>
   );
 }

@@ -1,11 +1,29 @@
 services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: feelgood
+      POSTGRES_PASSWORD: feelgood
+      POSTGRES_DB: feelgood
+    volumes:
+      - feelgood-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U feelgood"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   api:
     build:
       context: ./app
       dockerfile: Dockerfile
     restart: unless-stopped
-    # En production, Caddy (deploy/Caddyfile) est la porte HTTPS.
-    # N'ouvre 8787 sur 0.0.0.0 que pour un test LAN, jamais sur Internet.
+    depends_on:
+      db:
+        condition: service_healthy
+    # En production Render, Caddy n'est pas nécessaire (HTTPS fourni).
+    # Sur un VPS, Caddy (deploy/Caddyfile) est la porte HTTPS.
     ports:
       - "127.0.0.1:8787:8787"
     environment:
@@ -14,6 +32,7 @@ services:
       DATA_DIR: /data
       FEELGOOD_SEED: "0"
       CORS_ORIGIN: "*"
+      DATABASE_URL: postgres://feelgood:feelgood@db:5432/feelgood
       PUBLIC_URL: "${PUBLIC_URL:-http://127.0.0.1:8787}"
       APP_PUBLIC_URL: "${APP_PUBLIC_URL:-http://127.0.0.1:5173}"
       JWT_SECRET: "${JWT_SECRET:-}"
@@ -32,3 +51,4 @@ services:
 
 volumes:
   feelgood-data:
+  feelgood-pg:

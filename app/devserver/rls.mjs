@@ -101,8 +101,21 @@ export function presentRecord(entity, rec, user) {
   if (!rec || typeof rec !== 'object' || Array.isArray(rec)) return rec;
   if (entity !== 'ParentLink') return rec;
   if (!isParentOnly(rec, user)) return rec;
-  const { invite_code: _code, ...rest } = rec;
+  if (rec.status !== 'active') {
+    return { id: rec.id, status: rec.status, parent_email: rec.parent_email };
+  }
+  const {
+    invite_code: _code,
+    young_driver_email: _email,
+    ...rest
+  } = rec;
   return rest;
+}
+
+export function canDelete(entity, rec, user) {
+  if (!canWrite(entity, rec, user)) return false;
+  if (entity === 'ParentLink' && isParentOnly(rec, user)) return false;
+  return true;
 }
 
 export function stripOwnership(data) {

@@ -1,20 +1,29 @@
-# Test en ligne gratuit : un Web Service Render (plan Free).
-# Dashboard Render → New → Blueprint → repo thmallard75/FEELGOOD
-# Branche : cursor/fix-trip-after-drive-592e
+# Production FeelGood : Render Starter (toujours allumé, Francfort) + Postgres.
+# ~7 $/mois web + ~6 $/mois base = environ 13 €/mois.
+# Ce n'est plus le plan Free (endormissement + données perdues).
 #
-# Un seul HTTPS : inscription e-mail + API + trajets.
-# Limite Free : endormissement après 15 min, disque non persistant.
+# Dashboard Render → Blueprint → Sync, ou carte bancaire puis Sync.
+# L'URL https://feelgood-mytf.onrender.com/ reste la même.
+
+databases:
+  - name: feelgood-db
+    plan: 0.1c-256mb
+    region: frankfurt
+    databaseName: feelgood
+    user: feelgood
+    postgresMajorVersion: "16"
 
 services:
   - type: web
     name: feelgood
     runtime: docker
-    plan: free
+    plan: starter
     region: frankfurt
     branch: cursor/fix-trip-after-drive-592e
     dockerfilePath: ./app/Dockerfile
     dockerContext: ./app
     healthCheckPath: /health
+    maxShutdownDelaySeconds: 30
     envVars:
       - key: HOST
         value: 0.0.0.0
@@ -24,3 +33,7 @@ services:
         value: "*"
       - key: JWT_SECRET
         generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: feelgood-db
+          property: connectionString
