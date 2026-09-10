@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { motion } from 'framer-motion';
-import { Shield, Plus, Trash2, Mail, RefreshCw, CheckCircle, Clock, XCircle } from 'lucide-react';
+import { Shield, Plus, Trash2, Mail, RefreshCw, CheckCircle, Clock, XCircle, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
@@ -18,6 +18,12 @@ const STATUS_CONFIG = {
   active:  { label: 'Actif',       icon: CheckCircle, color: 'text-primary' },
   revoked: { label: 'Révoqué',     icon: XCircle, color: 'text-muted-foreground' },
 };
+
+function formatInviteCode(code) {
+  const raw = String(code || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  if (raw.length >= 8) return `${raw.slice(0, 4)}-${raw.slice(4, 8)}`;
+  return raw;
+}
 
 export default function ParentSection({ user, trips }) {
   const [links, setLinks] = useState([]);
@@ -60,7 +66,9 @@ export default function ParentSection({ user, trips }) {
     setLinks(prev => [...prev, link]);
     setEmail('');
     setLoading(false);
-    toast.success(`Invitation enregistrée pour ${email.trim()}`);
+    toast.success(link.invite_code
+      ? `Code à transmettre : ${formatInviteCode(link.invite_code)}`
+      : `Invitation enregistrée pour ${email.trim()}`);
   };
 
   const handleRevoke = async (link) => {
@@ -87,7 +95,7 @@ export default function ParentSection({ user, trips }) {
       </div>
 
       <p className="text-xs text-muted-foreground leading-relaxed">
-        Invitez un parent ou tuteur à suivre votre progression. Il verra uniquement vos scores globaux et statistiques — jamais vos trajets individuels, vos lieux ou vos heures.
+        Invitez un parent ou tuteur à suivre votre progression. Transmettez-lui le code affiché : sans ce code, personne ne peut activer l'invitation, même en connaissant l'e-mail. Il verra uniquement vos scores globaux — jamais vos trajets, lieux ou heures.
       </p>
 
       {/* Invite form */}
@@ -135,6 +143,20 @@ export default function ParentSection({ user, trips }) {
                       </span>
                     )}
                   </div>
+                  {link.status === 'pending' && link.invite_code && (
+                    <button
+                      type="button"
+                      className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-mono tracking-widest text-foreground"
+                      onClick={() => {
+                        const shown = formatInviteCode(link.invite_code);
+                        navigator.clipboard?.writeText(shown).catch(() => {});
+                        toast.success(`Code copié : ${shown}`);
+                      }}
+                    >
+                      <Copy className="w-3 h-3" />
+                      {formatInviteCode(link.invite_code)}
+                    </button>
+                  )}
                 </div>
                 <div className="flex items-center gap-1">
                   {link.status === 'active' && (

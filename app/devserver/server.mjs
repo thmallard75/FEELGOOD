@@ -17,10 +17,14 @@ const { requestContext } = await import('./context.mjs');
 const auth = await import('./auth.mjs');
 const { serveWeb, webEnabled } = await import('./web.mjs');
 const {
+  SHARED_ENTITIES,
   scopedQuery,
   canRead,
   canWrite,
   parentLinkPatchAllowed,
+  parentOwnedPatch,
+  presentRecord,
+  generateInviteCode,
   stripOwnership,
 } = await import('./rls.mjs');
 
@@ -297,51 +301,63 @@ async function entitiesRoute(req, res, url, rest, user) {
 
   if (!entity) return send(res, 404, { error: 'Entite manquante' });
 
+  if (req.method !== 'GET' && SHARED_ENTITIES.has(entity)) {
+    await readRaw(req);
+    return send(res, 403, { error: 'Cache cartographique en lecture seule' });
+  }
+
   switch (req.method) {
     case 'GET': {
       if (tail) {
         const rec = store.get(entity, tail);
         return canRead(entity, rec, user)
-          ? send(res, 200, rec)
+          ? send(res, 200, presentRecord(entity, rec, user))
           : send(res, 404, { error: `${entity} ${tail} introuvable` });
       }
       const opts = queryOptions(url);
       opts.q = scopedQuery(entity, user, opts.q);
-      return send(res, 200, store.query(entity, opts));
+      return send(res, 200, store.query(entity, opts).map((rec) => presentRecord(entity, rec, user)));
     }
     case 'POST': {
       const body = stripOwnership(await readJson(req)) || {};
-      if (entity === 'ParentLink') body.young_driver_email = user.email;
+      if (entity === 'ParentLink') {
+        body.young_driver_email = user.email;
+        body.status = 'pending';
+        body.invite_code = generateInviteCode();
+      }
       if (tail === 'bulk') {
         const rows = (Array.isArray(body) ? body : [body]).map((row) => {
           const next = stripOwnership(row);
-          if (entity === 'ParentLink') next.young_driver_email = user.email;
+          if (entity === 'ParentLink') {
+            next.young_driver_email = user.email;
+            next.status = 'pending';
+            next.invite_code = generateInviteCode();
+          }
           return next;
         });
-        return send(res, 200, store.bulkCreate(entity, rows, user));
+        return send(res, 200, store.bulkCreate(entity, rows, user).map((rec) => presentRecord(entity, rec, user)));
       }
-      return send(res, 201, store.create(entity, body, user));
+      return send(res, 201, presentRecord(entity, store.create(entity, body, user), user));
     }
     case 'PUT': {
       const body = stripOwnership(await readJson(req)) || {};
       if (tail === 'bulk') {
-        const allowed = (Array.isArray(body) ? body : [])
-          .map((row) => ({ ...stripOwnership(row), id: row.id }))
-          .filter((row) => {
-            const rec = store.get(entity, row.id);
-            if (!canWrite(entity, rec, user)) return false;
-            const { id: _id, ...patch } = row;
-            if (entity === 'ParentLink' && !parentLinkPatchAllowed(rec, user, patch)) return false;
-            return true;
-          });
-        return send(res, 200, store.bulkUpdate(entity, allowed));
+        const allowed = [];
+        for (const row of Array.isArray(body) ? body : []) {
+          const rec = store.get(entity, row.id);
+          if (!canWrite(entity, rec, user)) continue;
+          const patch = { ...stripOwnership(row) };
+          if (entity === 'ParentLink' && !parentLinkPatchAllowed(rec, user, patch)) continue;
+          allowed.push({ id: row.id, ...parentOwnedPatch(rec, user, patch) });
+        }
+        return send(res, 200, store.bulkUpdate(entity, allowed).map((rec) => presentRecord(entity, rec, user)));
       }
       const rec = store.get(entity, tail);
       if (!canWrite(entity, rec, user)) return send(res, 404, { error: `${entity} ${tail} introuvable` });
       if (entity === 'ParentLink' && !parentLinkPatchAllowed(rec, user, body)) {
         return send(res, 403, { error: 'Modification parent interdite' });
       }
-      return send(res, 200, store.update(entity, tail, body));
+      return send(res, 200, presentRecord(entity, store.update(entity, tail, parentOwnedPatch(rec, user, body)), user));
     }
     case 'PATCH': {
       const body = await readJson(req);
@@ -352,6 +368,8 @@ async function entitiesRoute(req, res, url, rest, user) {
           if (rows.some((rec) => !parentLinkPatchAllowed(rec, user, body?.data))) {
             return send(res, 403, { error: 'Modification parent interdite' });
           }
+          const { invite_code: _code, ...data } = body?.data || {};
+          return send(res, 200, store.updateMany(entity, q, data));
         }
         return send(res, 200, store.updateMany(entity, q, body?.data));
       }

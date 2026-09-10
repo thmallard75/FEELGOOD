@@ -43,9 +43,13 @@ Le fichier `render.yaml` décrit le service. Dans [Render](https://dashboard.ren
 3. Branche **`cursor/fix-trip-after-drive-592e`** (pas `main`)
 4. Apply
 
-Tu obtiens `https://feelgood-xxxx.onrender.com` : **écran de connexion réel** (e-mail + mot de passe). Les trajets sont sur ce serveur.
+Tu obtiens une URL du type `https://feelgood-xxxx.onrender.com` : **écran de connexion réel** (e-mail + mot de passe). Les trajets sont sur ce serveur.
+
+Instance de test actuelle : **https://feelgood-mytf.onrender.com/**
 
 Limites du plan Free : le service s’endort après 15 min sans visite (~1 min au réveil) ; les données peuvent disparaître au redémarrage (pas de disque persistant).
+
+La démo GitHub Pages `https://thmallard75.github.io/FEELGOOD/` n’a **pas** de compte : ce n’est pas ce serveur.
 
 ## 1b. Héberger chez toi (VPS)
 

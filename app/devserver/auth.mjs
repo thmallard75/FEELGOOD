@@ -371,15 +371,21 @@ function ownsYoungDriverLink(user, link) {
   return normalizeEmail(link.young_driver_email) === normalizeEmail(user.email);
 }
 
-function parentInviteCopy(user) {
+function parentInviteCopy(user, link) {
   const name = user.full_name || String(user.email || '').split('@')[0] || 'Un jeune conducteur';
+  const code = link?.invite_code ? String(link.invite_code) : '';
+  const codeBlock = code
+    ? `Code d'invitation (à saisir dans l'Espace Parent) : ${code}
+
+`
+    : '';
   return {
     subject: `${name} vous invite sur FeelGood Conduite`,
     body: `Bonjour,
 
 ${name} vous invite à suivre sa progression sur FeelGood Conduite.
 
-Pour accéder au tableau de bord parent, connectez-vous (ou créez un compte) sur l'application avec cette adresse email, puis rendez-vous dans la section "Espace Parent" via l'icône Profil.
+${codeBlock}Connectez-vous (ou créez un compte) avec cette adresse email, puis ouvrez l'Espace Parent et saisissez le code. Sans ce code, l'invitation reste en attente.
 
 Vous pourrez suivre :
 • Le score global de conduite (semaine et mois)
@@ -455,6 +461,6 @@ export async function sendParentInviteEmail(user, payload = {}) {
   if (!link) throw httpError(403, 'Invitation parent introuvable');
 
   const to = normalizeEmail(link.parent_email);
-  const { subject, body } = parentInviteCopy(user);
+  const { subject, body } = parentInviteCopy(user, link);
   return sendAppEmail({ to, subject, body });
 }

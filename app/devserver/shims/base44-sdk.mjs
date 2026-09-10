@@ -6,7 +6,15 @@
 import { store } from '../store.mjs';
 import { currentUser } from '../context.mjs';
 import { publicUser } from '../auth.mjs';
-import { canRead, canWrite, scopedQuery } from '../rls.mjs';
+import { canRead, canWrite, scopedQuery, SHARED_ENTITIES } from '../rls.mjs';
+
+function forbidSharedWrite(name, service) {
+  if (!service && SHARED_ENTITIES.has(name)) {
+    const err = new Error('Cache cartographique en lecture seule');
+    err.status = 403;
+    throw err;
+  }
+}
 
 function entityHandler(name, { service = false } = {}) {
   const actor = () => currentUser();
@@ -39,33 +47,40 @@ function entityHandler(name, { service = false } = {}) {
       return rec;
     },
     async create(data) {
+      forbidSharedWrite(name, service);
       const user = actor();
       if (!service && !user) throw Object.assign(new Error('Unauthorized'), { status: 401 });
       return store.create(name, data, user || undefined);
     },
     async bulkCreate(rows) {
+      forbidSharedWrite(name, service);
       const user = actor();
       if (!service && !user) throw Object.assign(new Error('Unauthorized'), { status: 401 });
       return store.bulkCreate(name, rows, user || undefined);
     },
     async update(id, data) {
+      forbidSharedWrite(name, service);
       const rec = store.get(name, id);
       if (!writable(rec)) throw notFound(name, id);
       return store.update(name, id, data);
     },
     async updateMany(query, data) {
+      forbidSharedWrite(name, service);
       return store.updateMany(name, scoped(query), data);
     },
     async bulkUpdate(rows) {
+      forbidSharedWrite(name, service);
       const allowed = (rows || []).filter((row) => writable(store.get(name, row.id)));
       return store.bulkUpdate(name, allowed);
     },
     async delete(id) {
+      forbidSharedWrite(name, service);
       const rec = store.get(name, id);
       if (!writable(rec) || !store.remove(name, id)) throw notFound(name, id);
       return { ok: true };
     },
     async deleteMany(query) {
+      forbidSharedWrite(name, service);
       return store.deleteMany(name, scoped(query));
     },
     subscribe() {

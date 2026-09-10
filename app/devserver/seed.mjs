@@ -149,6 +149,7 @@ export async function seed({ force = false } = {}) {
     young_driver_name: DEV_USER.full_name,
     parent_email: DEV_USER.email,
     status: 'active',
+    invite_code: 'SEEDCODE',
     ...parentStatsFrom(analysed),
   });
 

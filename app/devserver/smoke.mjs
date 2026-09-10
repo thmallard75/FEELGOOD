@@ -77,8 +77,10 @@ const bulk = await req('POST', `/api/apps/${APP}/entities/OsmTileCache/bulk`, ti
   ...t,
   cached_at: new Date().toISOString(),
 })));
-if (!bulk.ok) fail(`OsmTileCache/bulk -> ${bulk.status} ${JSON.stringify(bulk.data)}`);
-console.log(`[smoke] ${tiles.length} tuiles OSM chargees`);
+if (bulk.status !== 403) fail(`OsmTileCache/bulk devrait etre 403, pas ${bulk.status}`);
+const wipeTiles = await req('DELETE', `/api/apps/${APP}/entities/OsmTileCache`);
+if (wipeTiles.status !== 403) fail(`OsmTileCache DELETE devrait etre 403, pas ${wipeTiles.status}`);
+console.log('[smoke] cache OSM en lecture seule via HTTP');
 
 const rawTrack = JSON.parse(readFileSync(join(FIXTURES, 'dossenheim_track.json'), 'utf8'));
 const gps_track = timestampTrack(rawTrack, new Date().toISOString());
@@ -138,6 +140,10 @@ const invite = await req('POST', `/api/apps/${APP}/entities/ParentLink`, {
   status: 'pending',
 });
 if (!invite.ok || !invite.data?.id) fail(`ParentLink.create -> ${invite.status} ${JSON.stringify(invite.data)}`);
+if (!invite.data.invite_code || invite.data.status !== 'pending') {
+  fail(`invitation sans code: ${JSON.stringify(invite.data)}`);
+}
+const inviteCode = invite.data.invite_code;
 
 const sent = await req('POST', `/api/apps/${APP}/integrations/send-email`, {
   parentLinkId: invite.data.id,
@@ -202,14 +208,34 @@ const rewrite = await req('PUT', `/api/apps/${APP}/entities/ParentLink/${invite.
   weekly_score: 99,
 });
 if (rewrite.status !== 403) fail(`parent rewrite devrait etre 403, pas ${rewrite.status}`);
-const accept = await req('PUT', `/api/apps/${APP}/entities/ParentLink/bulk`, [
+const parentView = await req('GET', `/api/apps/${APP}/entities/ParentLink/${invite.data.id}`);
+if (!parentView.ok) fail(`parent GET invitation -> ${parentView.status}`);
+if (parentView.data.invite_code) fail('le parent ne doit pas lire invite_code');
+const noCode = await req('PUT', `/api/apps/${APP}/entities/ParentLink/bulk`, [
   { id: invite.data.id, status: 'active' },
+]);
+if (noCode.ok && noCode.data?.[0]?.status === 'active') {
+  fail('activation parent sans code devrait echouer');
+}
+const accept = await req('PUT', `/api/apps/${APP}/entities/ParentLink/bulk`, [
+  { id: invite.data.id, status: 'active', invite_code: inviteCode },
 ]);
 if (!accept.ok || accept.data?.[0]?.status !== 'active') {
   fail(`parent bulk activate -> ${accept.status} ${JSON.stringify(accept.data)}`);
 }
+if (accept.data?.[0]?.invite_code) fail('la reponse parent expose encore invite_code');
 token = original;
-console.log('[smoke] parent ne reecrit pas l\'invitation');
+const revoke = await req('PUT', `/api/apps/${APP}/entities/ParentLink/${invite.data.id}`, {
+  status: 'revoked',
+});
+if (!revoke.ok || revoke.data?.status !== 'revoked') {
+  fail(`revoke -> ${revoke.status} ${JSON.stringify(revoke.data)}`);
+}
+token = parentAcc.data.access_token;
+const afterRevoke = await req('GET', `/api/apps/${APP}/entities/ParentLink/${invite.data.id}`);
+if (afterRevoke.status !== 404) fail(`parent voit encore le lien revoque (${afterRevoke.status})`);
+token = original;
+console.log('[smoke] parent code + revoke ok');
 
 const evil = sanitizeFromUrl('https://evil.example/steal', '/', {
   allowedOrigins: new Set(['https://feelgood.example']),

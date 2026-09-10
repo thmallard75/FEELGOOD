@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { Shield, Car, TrendingUp, MapPin, Phone, AlertTriangle, Smile, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -203,29 +204,40 @@ function YoungDriverCard({ link, onSync, syncing }) {
 }
 
 export default function ParentDashboard() {
-  const [user, setUser] = useState(null);
   const [links, setLinks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(null);
+  const [codes, setCodes] = useState({});
+  const [activating, setActivating] = useState(null);
 
   useEffect(() => {
     base44.auth.me().then(async (me) => {
-      setUser(me);
-      // Fetch les liens où je suis le parent
       const myLinks = await base44.entities.ParentLink.filter({ parent_email: me.email });
-      const active = myLinks.filter(l => l.status === 'active' || l.status === 'pending');
-      setLinks(active);
+      setLinks(myLinks.filter(l => l.status === 'active' || l.status === 'pending'));
       setLoading(false);
-
-      // Auto-activer les liens pending (le parent vient d'accéder)
-      for (const link of active.filter(l => l.status === 'pending')) {
-        await base44.entities.ParentLink.update(link.id, { status: 'active' });
-      }
-      if (active.some(l => l.status === 'pending')) {
-        setLinks(prev => prev.map(l => ({ ...l, status: 'active' })));
-      }
     });
   }, []);
+
+  const handleActivate = async (link) => {
+    const code = (codes[link.id] || '').trim();
+    if (!code) {
+      toast.error('Saisissez le code donné par le conducteur');
+      return;
+    }
+    setActivating(link.id);
+    try {
+      const updated = await base44.entities.ParentLink.update(link.id, {
+        status: 'active',
+        invite_code: code,
+      });
+      setLinks(prev => prev.map(l => l.id === link.id ? updated : l));
+      toast.success('Lien activé');
+    } catch {
+      toast.error('Code incorrect ou invitation expirée');
+    } finally {
+      setActivating(null);
+    }
+  };
 
   const handleSync = async (link) => {
     setSyncing(link.id);
@@ -267,12 +279,39 @@ export default function ParentDashboard() {
           </div>
           <p className="text-foreground font-medium">Aucun lien actif</p>
           <p className="text-sm text-muted-foreground mt-2 max-w-xs mx-auto">
-            Demandez au jeune conducteur de vous inviter depuis son Profil → Espace parent.
+            Demandez au jeune conducteur de vous inviter depuis son Profil → Espace parent, puis saisissez le code qu'il vous transmet.
           </p>
         </Card>
       ) : (
         links.map(link => (
-          <YoungDriverCard key={link.id} link={link} onSync={handleSync} syncing={syncing === link.id} />
+          link.status === 'pending' ? (
+            <Card key={link.id} className="p-5 border-border bg-card space-y-3">
+              <p className="text-sm font-medium text-foreground">
+                Invitation de {link.young_driver_name || link.young_driver_email}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Saisissez le code que le conducteur vous a montré (ou envoyé par e-mail) pour voir ses scores.
+              </p>
+              <div className="flex gap-2">
+                <Input
+                  value={codes[link.id] || ''}
+                  onChange={(e) => setCodes((prev) => ({ ...prev, [link.id]: e.target.value }))}
+                  placeholder="ABCD-EFGH"
+                  autoComplete="one-time-code"
+                  className="font-mono tracking-widest uppercase"
+                />
+                <Button
+                  onClick={() => handleActivate(link)}
+                  disabled={activating === link.id}
+                  className="min-h-[44px]"
+                >
+                  {activating === link.id ? '…' : 'Activer'}
+                </Button>
+              </div>
+            </Card>
+          ) : (
+            <YoungDriverCard key={link.id} link={link} onSync={handleSync} syncing={syncing === link.id} />
+          )
         ))
       )}
     </div>
