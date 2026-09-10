@@ -6,6 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sanitizeFromUrl } from './safeUrl.mjs';
+import { MemoryStore } from '../src/lib/memoryStore.js';
 
 const API = process.env.API_URL || 'http://127.0.0.1:8787';
 const APP = 'feelgood';
@@ -178,6 +179,35 @@ const cron = await req('POST', `/api/apps/${APP}/functions/retryPendingOsm`, {})
 if (cron.status !== 403) fail(`retryPendingOsm sans cle devrait etre 403, pas ${cron.status}`);
 token = original;
 console.log('[smoke] isolation fonctions + created_by_id ok');
+
+const seedStore = new MemoryStore({ actor: { id: 'user-local-1', email: 'moi@localhost' } });
+const seedUser = seedStore.create('User', {
+  id: 'user-local-1',
+  email: 'moi@localhost',
+}, { id: 'user-local-1', email: 'moi@localhost' });
+if (seedUser.id !== 'user-local-1') fail(`id seed perdu: ${seedUser.id}`);
+const seedTrip = seedStore.create('Trip', { created_by_id: 'hacker' }, { id: 'user-local-1', email: 'moi@localhost' });
+if (seedTrip.created_by_id !== 'user-local-1') fail(`actor ecrase par le client: ${seedTrip.created_by_id}`);
+console.log('[smoke] id seed conserve, owner force par l\'acteur');
+
+const parentAcc = await req('POST', `/api/apps/${APP}/auth/register`, {
+  email: parentEmail,
+  password: 'smoke-pass-1',
+  full_name: 'Parent',
+});
+if (!parentAcc.ok) fail(`register parent -> ${parentAcc.status} ${JSON.stringify(parentAcc.data)}`);
+token = parentAcc.data.access_token;
+const rewrite = await req('PUT', `/api/apps/${APP}/entities/ParentLink/${invite.data.id}`, {
+  parent_email: 'stolen@evil.example',
+  weekly_score: 99,
+});
+if (rewrite.status !== 403) fail(`parent rewrite devrait etre 403, pas ${rewrite.status}`);
+const accept = await req('PUT', `/api/apps/${APP}/entities/ParentLink/${invite.data.id}`, { status: 'active' });
+if (!accept.ok || accept.data.status !== 'active') {
+  fail(`parent activate -> ${accept.status} ${JSON.stringify(accept.data)}`);
+}
+token = original;
+console.log('[smoke] parent ne reecrit pas l\'invitation');
 
 const evil = sanitizeFromUrl('https://evil.example/steal', '/', {
   allowedOrigins: new Set(['https://feelgood.example']),

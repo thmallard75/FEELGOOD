@@ -69,16 +69,16 @@ const defaultIdGenerator = () => {
   return `${Date.now().toString(16)}${counter.toString(16).padStart(6, '0')}`;
 };
 
-function withoutOwnership(data) {
+function withoutOwnership(data, { keepId = false } = {}) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return data || {};
   const {
-    id: _id,
+    id,
     created_by: _cb,
     created_by_id: _cbi,
     created_date: _cd,
     ...rest
   } = data;
-  return rest;
+  return keepId && id ? { id, ...rest } : rest;
 }
 
 export class MemoryStore {
@@ -124,11 +124,12 @@ export class MemoryStore {
 
   create(name, data, actor = this.actor) {
     const now = new Date().toISOString();
+    const rest = withoutOwnership(data, { keepId: true });
     const rec = {
-      id: this.newId(),
+      id: rest.id || this.newId(),
       created_date: now,
       updated_date: now,
-      ...withoutOwnership(data),
+      ...rest,
       created_by: actor?.email,
       created_by_id: actor?.id,
     };

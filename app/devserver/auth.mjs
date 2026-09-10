@@ -87,6 +87,11 @@ export function upsertOAuthUser({ email, full_name, provider, providerId }) {
   const normalized = String(email).trim().toLowerCase();
   let user = findUserByEmail(normalized);
   if (user) {
+    if (user.password_hash && !user.oauth?.[provider]) {
+      const err = new Error('Un compte existe déjà avec cet e-mail. Connecte-toi d’abord avec ton mot de passe.');
+      err.status = 409;
+      throw err;
+    }
     const oauth = { ...(user.oauth || {}), [provider]: providerId };
     store.update('User', user.id, {
       oauth,

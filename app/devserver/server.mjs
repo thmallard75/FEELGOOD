@@ -327,7 +327,12 @@ async function entitiesRoute(req, res, url, rest, user) {
       if (tail === 'bulk') {
         const allowed = (Array.isArray(body) ? body : [])
           .map((row) => ({ ...stripOwnership(row), id: row.id }))
-          .filter((row) => canWrite(entity, store.get(entity, row.id), user));
+          .filter((row) => {
+            const rec = store.get(entity, row.id);
+            if (!canWrite(entity, rec, user)) return false;
+            if (entity === 'ParentLink' && !parentLinkPatchAllowed(rec, user, row)) return false;
+            return true;
+          });
         return send(res, 200, store.bulkUpdate(entity, allowed));
       }
       const rec = store.get(entity, tail);
@@ -341,6 +346,12 @@ async function entitiesRoute(req, res, url, rest, user) {
       const body = await readJson(req);
       if (tail === 'update-many') {
         const q = scopedQuery(entity, user, body?.query);
+        if (entity === 'ParentLink') {
+          const rows = store.query(entity, { q });
+          if (rows.some((rec) => !parentLinkPatchAllowed(rec, user, body?.data))) {
+            return send(res, 403, { error: 'Modification parent interdite' });
+          }
+        }
         return send(res, 200, store.updateMany(entity, q, body?.data));
       }
       return send(res, 404, { error: 'PATCH non gere' });
