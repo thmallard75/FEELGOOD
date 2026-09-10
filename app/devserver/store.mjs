@@ -1,60 +1,232 @@
-// Magasin du backend de developpement : le magasin en memoire partage avec le
-// mode demonstration du navigateur (src/lib/memoryStore.js), plus la
-// persistance sur disque pour que l'etat survive a un redemarrage.
+// Magasin persistant. L'isolation des trajets (RLS) est appliquee dans
+// server.mjs : chaque utilisateur ne voit que ses Trip / DrivingEvent.
+// ParentLink est lisible par le jeune et par le parent invite.
 //
-// Ce qui n'est pas reproduit : le RLS. Base44 restreint les lectures non
-// service-role au createur de l'enregistrement ; ici toutes les lectures
-// voient tout. C'est volontaire — le tableau de bord parent lit des liens
-// crees par le jeune conducteur, et emuler le RLS a moitie donnerait des
-// comportements plus trompeurs qu'utiles.
+// Production (Render) : DATABASE_URL → Postgres (sauvegardes Render).
+// Local / Docker sans Postgres : fichier DATA_DIR/store.json.
 
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { MemoryStore } from '../src/lib/memoryStore.js';
+import { TILE_ENTITY, createPgTileStore } from './tileStore.mjs';
 
-const DATA_DIR = join(import.meta.dirname, '.data');
+const DATA_DIR = process.env.DATA_DIR || join(import.meta.dirname, '.data');
 const DATA_FILE = join(DATA_DIR, 'store.json');
 
 export const DEV_USER = {
-  id: 'devuser0000000000000001',
-  email: 'dev@feelgood.local',
-  full_name: 'Conducteur de demonstration',
+  id: process.env.FEELGOOD_USER_ID || 'user-local-1',
+  email: process.env.FEELGOOD_USER_EMAIL || 'moi@localhost',
+  full_name: process.env.FEELGOOD_USER_NAME || 'Conducteur',
   role: 'admin',
   created_date: '2026-01-05T09:00:00.000Z',
 };
+
+function pgSsl(url) {
+  if (/sslmode=disable/i.test(url)) return false;
+  if (/sslmode=require/i.test(url) || /render\.com/i.test(url)) {
+    return { rejectUnauthorized: false };
+  }
+  return undefined;
+}
 
 class PersistentStore extends MemoryStore {
   constructor() {
     super({ newId: () => randomBytes(12).toString('hex'), actor: DEV_USER });
     this.saveTimer = null;
+    this.pool = null;
+    this.backend = 'memory';
+    this.restored = false;
+    this.tiles = null;
+    this._dirty = false;
+    this._chain = Promise.resolve();
     this.onChange = () => this.scheduleSave();
   }
 
-  scheduleSave() {
-    clearTimeout(this.saveTimer);
-    this.saveTimer = setTimeout(() => this.save(), 250);
-    this.saveTimer.unref?.();
+  async ready() {
+    const url = process.env.DATABASE_URL;
+    if (url) {
+      const pg = await import('pg').catch(() => null);
+      if (!pg?.default && !pg?.Pool) {
+        throw new Error('DATABASE_URL est defini mais le module pg est absent');
+      }
+      const Pool = pg.default?.Pool || pg.Pool;
+      this.pool = new Pool({ connectionString: url, ssl: pgSsl(url), max: 2 });
+      await this.waitForPg();
+      await this.pool.query(`
+        CREATE TABLE IF NOT EXISTS feelgood_store (
+          id INTEGER PRIMARY KEY,
+          data JSONB NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+      this.backend = 'postgres';
+      this.restored = await this.loadPostgres();
+      this.tiles = createPgTileStore(this.pool, { newId: this.newId });
+      await this.tiles.init();
+      const blobTiles = super.collection(TILE_ENTITY);
+      if (blobTiles.length) {
+        const n = await this.tiles.migrateFrom(blobTiles);
+        this.collections.set(TILE_ENTITY, []);
+        await this.flush();
+        console.log(`[api] ${n} tuiles OSM migrees vers table Postgres`);
+      }
+      console.log(`[api] persistance Postgres (${this.restored ? 'etat recharge' : 'base vide'}, tuiles=${this.tiles.count})`);
+      return this.backend;
+    }
+    this.backend = 'file';
+    this.restored = this.loadFile();
+    console.log(`[api] persistance fichier ${DATA_FILE} (${this.restored ? 'etat recharge' : 'vide'})`);
+    return this.backend;
   }
 
-  save() {
-    clearTimeout(this.saveTimer);
-    mkdirSync(DATA_DIR, { recursive: true });
-    const tmp = `${DATA_FILE}.tmp`;
-    writeFileSync(tmp, JSON.stringify(this.toJSON(), null, 1));
-    renameSync(tmp, DATA_FILE);
+  async waitForPg(attempts = 20) {
+    let last = null;
+    for (let i = 0; i < attempts; i += 1) {
+      try {
+        await this.pool.query('SELECT 1');
+        return;
+      } catch (e) {
+        last = e;
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    }
+    throw new Error(`Postgres injoignable: ${last?.message || 'timeout'}`);
   }
 
-  load() {
+  async loadPostgres() {
+    const { rows } = await this.pool.query('SELECT data FROM feelgood_store WHERE id = 1');
+    if (!rows[0]?.data) return false;
+    this.replaceAll(rows[0].data);
+    return true;
+  }
+
+  loadFile() {
     if (!existsSync(DATA_FILE)) return false;
     try {
       this.collections = new Map(Object.entries(JSON.parse(readFileSync(DATA_FILE, 'utf8'))));
       return true;
     } catch (e) {
-      console.warn(`[dev-api] etat illisible (${e.message}) — on repart du seed`);
+      console.warn(`[api] etat illisible (${e.message}) — magasin vide`);
       return false;
     }
+  }
+
+  load() {
+    return this.restored;
+  }
+
+  scheduleSave() {
+    this._dirty = true;
+    clearTimeout(this.saveTimer);
+    this.saveTimer = setTimeout(() => {
+      this.flush().catch((e) => console.error('[api] sauvegarde:', e.message));
+    }, 250);
+    this.saveTimer.unref?.();
+  }
+
+  async flush() {
+    clearTimeout(this.saveTimer);
+    this._dirty = true;
+    const next = this._chain.then(() => this._persistLatest());
+    this._chain = next.catch((e) => {
+      console.error('[api] sauvegarde:', e.message);
+    });
+    return next;
+  }
+
+  async _persistLatest() {
+    while (this._dirty) {
+      this._dirty = false;
+      await this._persist(this.toJSON());
+    }
+  }
+
+  async _persist(snapshot) {
+    if (this.pool) {
+      await this.pool.query(
+        `INSERT INTO feelgood_store (id, data, updated_at)
+         VALUES (1, $1::jsonb, NOW())
+         ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`,
+        [snapshot],
+      );
+      return;
+    }
+    mkdirSync(DATA_DIR, { recursive: true });
+    const tmp = `${DATA_FILE}.tmp`;
+    writeFileSync(tmp, JSON.stringify(snapshot, null, 1));
+    renameSync(tmp, DATA_FILE);
+  }
+
+  save() {
+    this.scheduleSave();
+  }
+
+  counts() {
+    const c = super.counts();
+    if (this.tiles) c[TILE_ENTITY] = this.tiles.count;
+    return c;
+  }
+
+  toJSON() {
+    const data = super.toJSON();
+    if (this.tiles) {
+      const { [TILE_ENTITY]: _tiles, ...rest } = data;
+      return rest;
+    }
+    return data;
+  }
+
+  replaceAll(data) {
+    const copy = { ...(data || {}) };
+    if (this.tiles) delete copy[TILE_ENTITY];
+    super.replaceAll(copy);
+  }
+
+  query(name, opts) {
+    if (this.tiles && name === TILE_ENTITY) return this.tiles.query(opts);
+    return super.query(name, opts);
+  }
+
+  get(name, id) {
+    if (this.tiles && name === TILE_ENTITY) return this.tiles.get(id);
+    return super.get(name, id);
+  }
+
+  create(name, data, actor) {
+    if (this.tiles && name === TILE_ENTITY) return this.tiles.create(data, actor);
+    return super.create(name, data, actor);
+  }
+
+  bulkCreate(name, rows, actor) {
+    if (this.tiles && name === TILE_ENTITY) return this.tiles.bulkCreate(rows, actor);
+    return super.bulkCreate(name, rows, actor);
+  }
+
+  update(name, id, data) {
+    if (this.tiles && name === TILE_ENTITY) return this.tiles.update(id, data);
+    return super.update(name, id, data);
+  }
+
+  updateMany(name, query, data) {
+    if (this.tiles && name === TILE_ENTITY) return this.tiles.updateMany(query, data);
+    return super.updateMany(name, query, data);
+  }
+
+  bulkUpdate(name, rows) {
+    if (this.tiles && name === TILE_ENTITY) return this.tiles.bulkUpdate(rows);
+    return super.bulkUpdate(name, rows);
+  }
+
+  remove(name, id) {
+    if (this.tiles && name === TILE_ENTITY) return this.tiles.remove(id);
+    return super.remove(name, id);
+  }
+
+  deleteMany(name, query) {
+    if (this.tiles && name === TILE_ENTITY) return this.tiles.deleteMany(query);
+    return super.deleteMany(name, query);
   }
 }
 

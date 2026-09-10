@@ -1,9 +1,10 @@
-# Backend de developpement
+# Serveur FeelGood (auto-heberge)
 
-L'application est concue pour tourner sur la plateforme Base44 : le SDK parle a
-un backend heberge, et sans session valide l'API repond `403 auth_required`.
-Le code de ce dossier fournit ce backend en local, pour pouvoir developper,
-lire et modifier l'application dans ce depot sans compte ni acces reseau.
+En production, ce dossier **est** le backend : Docker / `npm start` sur ton VPS.
+L'iPhone (App Store) envoie la trace GPS ici ; `analyzeTrip` calcule les KPI.
+Base44 n'est pas utilise.
+
+En local, le meme serveur sert au developpement :
 
 ```bash
 npm install
@@ -11,7 +12,7 @@ npm run dev:local     # backend de dev + Vite
 ```
 
 L'application est alors servie sur <http://127.0.0.1:5173>, et le proxy `/api`
-de `@base44/vite-plugin` pointe sur le backend local (port 8787).
+de Vite pointe sur ce serveur (port 8787).
 
 ## Ce qui est reel, ce qui ne l'est pas
 
@@ -85,13 +86,13 @@ npm run build:demo      # build Vite + instantane + repli 404.html
 l'instantane. Les chiffres publies sont donc ceux du moteur, pas des valeurs
 ecrites a la main.
 
-Ce que la demonstration ne peut pas faire, et signale explicitement : analyser
-un nouveau trajet, envoyer un e-mail, appeler un modele. Les ecritures
-(activer un lien parent, par exemple) fonctionnent en memoire et disparaissent
-au rechargement.
+Ce que la demonstration ne peut pas faire, et signale explicitement : envoyer
+un e-mail, appeler un modele. **Analyser un nouveau trajet fonctionne** : le
+vrai `analyzeTrip` s'execute dans le navigateur (Overpass pour les tuiles
+manquantes). Les ecritures sont conservees dans `localStorage`.
 
 Le workflow `.github/workflows/pages.yml` publie ce build sur GitHub Pages a
-chaque poussee sur `main`. `DEMO_BASE` fixe le sous-chemin de service
+chaque poussee. `DEMO_BASE` fixe le sous-chemin de service
 (`/FEELGOOD/` pour un site de projet).
 
 ## Commandes
@@ -101,6 +102,7 @@ chaque poussee sur `main`. `DEMO_BASE` fixe le sous-chemin de service
 | `npm run dev:local` | backend de dev + Vite |
 | `npm run dev:api` | backend seul, sur le port 8787 |
 | `npm run dev:reset` | efface l'etat local ; le seed est rejoue au demarrage suivant |
+| `npm run smoke` | GPS in, KPI out (API deja lancee) |
 | `npm run demo:snapshot` | regenere l'instantane de demonstration |
 | `npm run build:demo` | construit la version statique publiable |
 

@@ -5,6 +5,7 @@ import { BrowserRouter, HashRouter, Route, Routes } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
+import Login from './pages/Login';
 
 import { lazy, Suspense } from 'react';
 import AppLayout from './components/layout/AppLayout';
@@ -21,7 +22,7 @@ const ParentDashboard = lazy(() => import('./pages/ParentDashboard'));
 const Coaching = lazy(() => import('./pages/Coaching'));
 
 const AuthenticatedApp = () => {
-  const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
+  const { isLoadingAuth, isLoadingPublicSettings, authError, checkAppState } = useAuth();
 
   if (isLoadingPublicSettings || isLoadingAuth) {
     return (
@@ -37,10 +38,17 @@ const AuthenticatedApp = () => {
   if (authError) {
     if (authError.type === 'user_not_registered') {
       return <UserNotRegisteredError />;
-    } else if (authError.type === 'auth_required') {
-      navigateToLogin();
-      return null;
     }
+    if (authError.type === 'auth_required') {
+      return <Login onAuthenticated={() => checkAppState()} />;
+    }
+    return (
+      <div className="fixed inset-0 flex flex-col items-center justify-center gap-3 bg-background px-6 text-center">
+        <p className="text-lg font-semibold text-foreground">Serveur FeelGood injoignable</p>
+        <p className="text-sm text-muted-foreground max-w-sm">{authError.message}</p>
+        <p className="text-xs text-muted-foreground">Vérifie que ton API tourne et que VITE_API_URL pointe vers son HTTPS.</p>
+      </div>
+    );
   }
 
   return (

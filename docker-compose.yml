@@ -1,0 +1,54 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: feelgood
+      POSTGRES_PASSWORD: feelgood
+      POSTGRES_DB: feelgood
+    volumes:
+      - feelgood-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U feelgood"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    # En production Render, Caddy n'est pas nécessaire (HTTPS fourni).
+    # Sur un VPS, Caddy (deploy/Caddyfile) est la porte HTTPS.
+    ports:
+      - "127.0.0.1:8787:8787"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8787
+      DATA_DIR: /data
+      FEELGOOD_SEED: "0"
+      CORS_ORIGIN: "*"
+      DATABASE_URL: postgres://feelgood:feelgood@db:5432/feelgood
+      PUBLIC_URL: "${PUBLIC_URL:-http://127.0.0.1:8787}"
+      APP_PUBLIC_URL: "${APP_PUBLIC_URL:-http://127.0.0.1:5173}"
+      JWT_SECRET: "${JWT_SECRET:-}"
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+      GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
+      FACEBOOK_APP_ID: "${FACEBOOK_APP_ID:-}"
+      FACEBOOK_APP_SECRET: "${FACEBOOK_APP_SECRET:-}"
+      APPLE_CLIENT_ID: "${APPLE_CLIENT_ID:-}"
+      APPLE_TEAM_ID: "${APPLE_TEAM_ID:-}"
+      APPLE_KEY_ID: "${APPLE_KEY_ID:-}"
+      APPLE_PRIVATE_KEY: "${APPLE_PRIVATE_KEY:-}"
+      RESEND_API_KEY: "${RESEND_API_KEY:-}"
+      MAIL_FROM: "${MAIL_FROM:-FeelGood <noreply@localhost>}"
+    volumes:
+      - feelgood-data:/data
+
+volumes:
+  feelgood-data:
+  feelgood-pg:

@@ -101,7 +101,9 @@ export default function Recording() {
       setTripResult(result);
       setPhase('done');
       toast.success(`Trajet enregistré — ${result.distKm} km en ${result.durationMin} min`, {
-        description: 'Analyse OSM en cours…',
+        description: result.analysisOk
+          ? 'Bilan disponible'
+          : 'Analyse en cours sur le serveur — le bilan se mettra à jour tout seul.',
         duration: 5000,
       });
     } catch (err) {
@@ -143,8 +145,8 @@ export default function Recording() {
       <div className="min-h-[80vh] flex flex-col items-center justify-center gap-6">
         <div className="w-16 h-16 border-4 border-muted border-t-primary rounded-full animate-spin" />
         <div className="text-center">
-          <p className="text-lg font-semibold text-foreground">Sauvegarde en cours…</p>
-          <p className="text-sm text-muted-foreground mt-1">Enregistrement de la trace GPS et des événements</p>
+          <p className="text-lg font-semibold text-foreground">Analyse en cours…</p>
+          <p className="text-sm text-muted-foreground mt-1">Enregistrement de la trace GPS et calcul du bilan</p>
         </div>
       </div>
     );

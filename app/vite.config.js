@@ -1,36 +1,71 @@
-import base44 from "@base44/vite-plugin"
 import react from '@vitejs/plugin-react'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 
-// La demonstration statique n'a pas de backend : ni la cible de build par
-// defaut (qui refuse l'await de haut niveau du client de demo) ni les
-// traceurs du plugin (qui appellent /api) ne conviennent.
+// Demo = PWA GitHub Pages sans serveur. Sinon : app + API auto-hebergee.
 const isDemo = process.env.VITE_DEMO_MODE === 'true';
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 
-// https://vite.dev/config/
+function isBrowserEngineModule(source) {
+  const s = String(source).replace(/\\/g, '/');
+  return s === '@/api/demoClient'
+    || /(?:^|\/)demoClient(?:\.js)?$/.test(s)
+    || s === '@/api/runLocalFunction'
+    || /(?:^|\/)runLocalFunction(?:\.js)?$/.test(s)
+    || s.includes('base44/functions/');
+}
+
 export default defineConfig({
-  logLevel: 'error', // Suppress warnings, only show errors
+  logLevel: 'error',
   resolve: {
     alias: {
       '@': path.resolve(rootDir, 'src'),
     },
   },
-  // Cible relevee pour ce seul build, afin de ne pas restreindre les
-  // navigateurs supportes par le build de production.
-  ...(isDemo ? { build: { target: 'es2022' } } : {}),
+  build: { target: 'es2022' },
+  server: isDemo ? undefined : {
+    proxy: {
+      '/api': { target: 'http://127.0.0.1:8787', changeOrigin: true },
+    },
+  },
   plugins: [
-    // Le plugin Base44 telemetrie vers /api : inutile (et cassant) pour le
-    // build de test autonome, PWA et app iOS.
-    ...(!isDemo ? [base44({
-      legacySDKImports: process.env.BASE44_LEGACY_SDK_IMPORTS === 'true',
-      hmrNotifier: true,
-      navigationNotifier: true,
-      analyticsTracker: true,
-      visualEditAgent: true
-    })] : []),
+    {
+      name: 'feelgood-privacy-path',
+      configureServer(server) {
+        server.middlewares.use((req, _res, next) => {
+          const pathName = req.url ? req.url.split('?')[0].replace(/\/+$/, '') : '';
+          if (pathName === '/confidentialite' || pathName === '/privacy') {
+            req.url = '/confidentialite.html';
+          }
+          next();
+        });
+      },
+    },
+    ...(isDemo ? [{
+      name: 'feelgood-deno-shims',
+      enforce: 'pre',
+      resolveId(id) {
+        if (/^npm:@base44\/sdk/.test(id)) {
+          return path.resolve(rootDir, 'src/api/browserSdk.js');
+        }
+        if (id === 'base44:runtime') {
+          return path.resolve(rootDir, 'src/api/browserRuntime.js');
+        }
+        return null;
+      },
+    }] : [{
+      // App Store : Vite crawl le import() de demoClient meme si VITE_DEMO_MODE
+      // est faux. On le redirige vers un stub pour ne jamais embarquer OSM.
+      name: 'feelgood-appstore-no-browser-engine',
+      enforce: 'pre',
+      resolveId(id) {
+        if (isBrowserEngineModule(id)) {
+          return path.resolve(rootDir, 'src/api/appStoreStub.js');
+        }
+        return null;
+      },
+    }]),
     react(),
-  ]
+  ],
 });

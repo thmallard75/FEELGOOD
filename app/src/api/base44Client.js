@@ -1,20 +1,14 @@
-import { createClient } from '@base44/sdk';
-import { appParams } from '@/lib/app-params';
+/**
+ * Client API de l'application.
+ *
+ * - Version de test statique (GitHub Pages) : instantane local, VITE_DEMO_MODE.
+ * - App Store / serveur perso : HTTP vers TON API (VITE_API_URL), sans Base44.
+ *   L'iPhone envoie la trace GPS ; analyzeTrip calcule les KPI sur le serveur.
+ */
 
-const { appId, token, functionsVersion, appBaseUrl } = appParams;
-
-// Le build de demonstration (npm run build:demo) n'a pas de backend : le client
-// est alors servi depuis un instantane statique. Voir src/api/demoClient.js.
 const isDemo = import.meta.env.VITE_DEMO_MODE === 'true';
+const apiUrl = import.meta.env.VITE_API_URL || '';
 
 export const base44 = isDemo
   ? await (await import('@/api/demoClient')).createDemoClient()
-  //Create a client with authentication required
-  : createClient({
-    appId,
-    token,
-    functionsVersion,
-    serverUrl: '',
-    requiresAuth: false,
-    appBaseUrl,
-  });
+  : await (await import('@/api/selfHostedClient')).createSelfHostedClient(apiUrl);

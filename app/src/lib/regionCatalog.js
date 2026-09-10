@@ -21,3 +21,5 @@ export const REGIONS = [
 ];
 
 export const SIZE_LABEL = { small: "Léger", medium: "Moyen", large: "Lourd" };
+
+export const GRAND_EST_DEPT_CODES = ['08', '10', '51', '52', '54', '55', '57', '67', '68', '88'];

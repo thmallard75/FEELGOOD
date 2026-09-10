@@ -21,8 +21,18 @@ import { computeDistractionSummary } from '../../shared/distractionEngine.ts';
 async function buildOsmMap(gpsTrack, base44) {
   const { roadContext, coverage, missing } = await getRoadContextForTrack(gpsTrack, base44);
   console.log(`[analyzeTrip] OSM coverage=${coverage} rb=${roadContext.roundabouts.length} seg=${roadContext.speedLimits.length} stops=${roadContext.stops.length} missing=${missing}`);
+  // Ne plus faire échouer tout le trajet : sans tuiles OSM on calcule quand
+  // même freinages, fatigue, distraction et sérénité. Le retry pourra
+  // relancer plus tard si des tuiles arrivent.
   if (coverage === 'none' || (!roadContext.roundabouts.length && !roadContext.speedLimits.length && !roadContext.stops.length)) {
-    throw new Error('OSM_UNAVAILABLE: aucune donnée routière (cache vide + Overpass injoignable)');
+    console.warn('[analyzeTrip] OSM indisponible — analyse hors carte routière');
+    return {
+      roundabouts: [],
+      speedLimits: [],
+      stops: [],
+      coverage: 'none',
+      missing,
+    };
   }
   return { ...roadContext, coverage, missing };
 }
@@ -637,31 +647,43 @@ Deno.serve(async (req) => {
 
     const rawTrack = trip.gps_track || [];
     if (rawTrack.length < 5) {
+      const shortKpis = {
+        overall_score: 100, speed_score: 100, smoothness_score: 100,
+        anticipation_score: 100, stop_score: 100,
+        serenity_index: 100, serenity_label: 'Sereine',
+        serenity_summary: 'Trajet trop court pour une analyse approfondie.',
+      };
       await base44.asServiceRole.entities.Trip.update(tripId, {
-        status: 'completed', overall_score: 100, speed_score: 100,
-        smoothness_score: 100, anticipation_score: 100, stop_score: 100,
-        serenity_index: 100, serenity_label: 'Sereine', serenity_summary: 'Trajet trop court pour une analyse approfondie.',
+        status: 'completed', ...shortKpis,
       });
-      return Response.json({ ok: true, note: 'Trace GPS trop courte' });
+      return Response.json({ ok: true, note: 'Trace GPS trop courte', overall_score: 100, kpis: shortKpis });
     }
 
     // Pré-traitement GPS : rejet des points aberrants + lissage léger + confiance
     const { track: gpsTrack, confidence: dataConfidence, dropped: droppedCount } = filterGpsTrack(rawTrack);
+    if (gpsTrack.length < 5) {
+      const noisyKpis = {
+        overall_score: 100, speed_score: 100, smoothness_score: 100,
+        anticipation_score: 100, stop_score: 100,
+        serenity_index: 100, serenity_label: 'Sereine',
+        serenity_summary: 'Trace GPS trop bruitée pour une analyse approfondie.',
+        data_confidence: Math.round(dataConfidence * 100) / 100,
+      };
+      await base44.asServiceRole.entities.Trip.update(tripId, {
+        status: 'completed', ...noisyKpis,
+      });
+      return Response.json({ ok: true, note: 'Trace GPS trop bruitée', overall_score: 100, kpis: noisyKpis });
+    }
     console.log(`[analyzeTrip] GPS: ${rawTrack.length} → ${gpsTrack.length} pts (dropped ${droppedCount}, confiance ${dataConfidence.toFixed(2)})`);
 
     // Construire la carte OSM (corridor par tronçons le long de la trace)
     const osmData = await buildOsmMap(gpsTrack, base44);
 
-    // Couverture partielle → on ne calcule pas de score (le workflow de retry
-    // ré-invokera ce trajet jusqu'à couverture complète).
+    // Couverture partielle : on note le manque mais on calcule quand même.
+    // Avant, le trajet restait bloqué en pending_osm sans scores — l'app
+    // paraissait cassée après un vrai trajet. retryPendingOsm peut relancer.
     if (osmData.coverage === 'partial') {
-      await base44.asServiceRole.entities.Trip.update(tripId, {
-        status: 'pending_osm',
-        osm_coverage: 'partial',
-        osm_error: `Couverture partielle : ${osmData.missing} tronçon(s) injoignable(s)`,
-      }).catch(() => {});
-      console.warn(`[analyzeTrip] Coverage partielle — trip ${tripId} marqué pending_osm (${osmData.missing} tronçon(s) échoué(s))`);
-      return Response.json({ ok: false, osm_failed: true, partial: true, missing: osmData.missing });
+      console.warn(`[analyzeTrip] Coverage partielle (${osmData.missing} tronçon(s)) — analyse avec les tuiles disponibles`);
     }
 
     // Analyser la trace (OSM : excès, ronds-points, stops)
@@ -741,7 +763,26 @@ Deno.serve(async (req) => {
     }
 
     console.log(`[analyzeTrip] Terminé — score=${scores.overall_score}, events=${eventsToSave.length}`);
-    return Response.json({ ok: true, overall_score: scores.overall_score, events_count: eventsToSave.length });
+    return Response.json({
+      ok: true,
+      overall_score: scores.overall_score,
+      events_count: eventsToSave.length,
+      kpis: {
+        ...scores,
+        harsh_braking_count: harshResult.harshBrakingCount,
+        harsh_acceleration_count: harshResult.harshAccelCount,
+        phone_usage_seconds: distractionResult.phoneUsageSeconds,
+        fatigue_summary: fatigueSummary,
+        distraction_summary: distractionResult.summary,
+        serenity_index: serenity.serenity_index,
+        serenity_label: serenity.label,
+        serenity_primary_axis: serenity.primary_axis,
+        serenity_secondary_axis: serenity.secondary_axis || null,
+        serenity_summary: serenity.one_line_summary,
+        osm_coverage: osmData.coverage || 'full',
+        data_confidence: Math.round(dataConfidence * 100) / 100,
+      },
+    });
 
   } catch (err) {
     console.error('[analyzeTrip] Erreur:', err.message);

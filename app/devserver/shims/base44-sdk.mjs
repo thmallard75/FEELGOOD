@@ -1,49 +1,92 @@
 // Substitut du SDK Base44 pour l'execution locale des fonctions backend.
-//
-// Les fonctions de base44/functions/*/entry.ts importent `npm:@base44/sdk`,
-// un specificateur Deno que Node ne sait pas resoudre. Le loader le redirige
-// ici, et ce module rend un client dont les entites tapent dans le magasin
-// local au lieu de partir en HTTP vers Base44. Le code metier des fonctions
-// s'execute donc reellement, sans reseau ni compte.
+// entities = magasin filtre par l'utilisateur HTTP. asServiceRole = magasin
+// complet, reserve aux fonctions (analyzeTrip, caches OSM) apres le controle
+// d'acces de la route HTTP.
 
-import { DEV_USER, store } from '../store.mjs';
+import { store } from '../store.mjs';
+import { currentUser } from '../context.mjs';
+import { publicUser } from '../auth.mjs';
+import { canRead, canWrite, scopedQuery, SHARED_ENTITIES } from '../rls.mjs';
 
-function entityHandler(name) {
+function forbidSharedWrite(name, service) {
+  if (!service && SHARED_ENTITIES.has(name)) {
+    const err = new Error('Cache cartographique en lecture seule');
+    err.status = 403;
+    throw err;
+  }
+}
+
+function entityHandler(name, { service = false } = {}) {
+  const actor = () => currentUser();
+
+  function scoped(q) {
+    if (service) return q;
+    return scopedQuery(name, actor(), q);
+  }
+
+  function visible(rec) {
+    if (service) return Boolean(rec);
+    return canRead(name, rec, actor());
+  }
+
+  function writable(rec) {
+    if (service) return Boolean(rec);
+    return canWrite(name, rec, actor());
+  }
+
   return {
     async list(sort, limit, skip, fields) {
-      return store.query(name, { sort, limit, skip, fields: splitFields(fields) });
+      return Promise.resolve(store.query(name, { q: scoped(), sort, limit, skip, fields: splitFields(fields) }));
     },
     async filter(q, sort, limit, skip, fields) {
-      return store.query(name, { q, sort, limit, skip, fields: splitFields(fields) });
+      return Promise.resolve(store.query(name, { q: scoped(q), sort, limit, skip, fields: splitFields(fields) }));
     },
     async get(id) {
-      const rec = store.get(name, id);
-      if (!rec) throw notFound(name, id);
+      const rec = await Promise.resolve(store.get(name, id));
+      if (!visible(rec)) throw notFound(name, id);
       return rec;
     },
     async create(data) {
-      return store.create(name, data);
+      forbidSharedWrite(name, service);
+      const user = actor();
+      if (!service && !user) throw Object.assign(new Error('Unauthorized'), { status: 401 });
+      return Promise.resolve(store.create(name, data, user || undefined));
     },
     async bulkCreate(rows) {
-      return store.bulkCreate(name, rows);
+      forbidSharedWrite(name, service);
+      const user = actor();
+      if (!service && !user) throw Object.assign(new Error('Unauthorized'), { status: 401 });
+      return Promise.resolve(store.bulkCreate(name, rows, user || undefined));
     },
     async update(id, data) {
-      const rec = store.update(name, id, data);
-      if (!rec) throw notFound(name, id);
-      return rec;
+      forbidSharedWrite(name, service);
+      const rec = await Promise.resolve(store.get(name, id));
+      if (!writable(rec)) throw notFound(name, id);
+      return Promise.resolve(store.update(name, id, data));
     },
     async updateMany(query, data) {
-      return store.updateMany(name, query, data);
+      forbidSharedWrite(name, service);
+      return Promise.resolve(store.updateMany(name, scoped(query), data));
     },
     async bulkUpdate(rows) {
-      return store.bulkUpdate(name, rows);
+      forbidSharedWrite(name, service);
+      const allowed = [];
+      for (const row of rows || []) {
+        const rec = await Promise.resolve(store.get(name, row.id));
+        if (writable(rec)) allowed.push(row);
+      }
+      return Promise.resolve(store.bulkUpdate(name, allowed));
     },
     async delete(id) {
-      if (!store.remove(name, id)) throw notFound(name, id);
+      forbidSharedWrite(name, service);
+      const rec = await Promise.resolve(store.get(name, id));
+      const removed = rec && writable(rec) ? await Promise.resolve(store.remove(name, id)) : false;
+      if (!removed) throw notFound(name, id);
       return { ok: true };
     },
     async deleteMany(query) {
-      return store.deleteMany(name, query);
+      forbidSharedWrite(name, service);
+      return Promise.resolve(store.deleteMany(name, scoped(query)));
     },
     subscribe() {
       return () => {};
@@ -62,41 +105,52 @@ function notFound(name, id) {
   return err;
 }
 
-const entities = new Proxy({}, {
-  get(_target, name) {
-    if (typeof name !== 'string' || name.startsWith('_') || name === 'then') return undefined;
-    return entityHandler(name);
-  },
-});
+function makeEntities({ service = false } = {}) {
+  return new Proxy({}, {
+    get(_target, name) {
+      if (typeof name !== 'string' || name.startsWith('_') || name === 'then') return undefined;
+      return entityHandler(name, { service });
+    },
+  });
+}
 
-// Les appels LLM et e-mail n'ont pas d'equivalent local. Chaque appelant a
-// deja un repli documente (voir coachFallback dans kpiEngine), donc lever une
-// erreur explicite fait passer par ce chemin plutot que d'inventer une reponse.
-const integrations = {
-  Core: {
-    async InvokeLLM() {
-      throw new Error('InvokeLLM indisponible dans le backend de developpement');
+function makeIntegrations({ service = false } = {}) {
+  return {
+    Core: {
+      async InvokeLLM() {
+        throw new Error('InvokeLLM indisponible dans le backend de developpement');
+      },
+      async SendEmail(payload) {
+        const { sendAppEmail } = await import('../auth.mjs');
+        const user = currentUser();
+        const to = typeof payload?.to === 'string' ? payload.to.trim().toLowerCase() : '';
+        if (!service && user && to !== String(user.email || '').toLowerCase()) {
+          const err = new Error('Envoi e-mail refuse');
+          err.status = 403;
+          throw err;
+        }
+        return sendAppEmail(payload);
+      },
     },
-    async SendEmail(payload) {
-      console.log(`[dev-api] SendEmail simule -> ${payload?.to}: ${payload?.subject}`);
-      return { ok: true, simulated: true };
-    },
-  },
-};
+  };
+}
 
 function makeClient() {
   const client = {
-    entities,
+    entities: makeEntities({ service: false }),
     auth: {
       async me() {
-        return DEV_USER;
+        const user = currentUser();
+        if (!user) throw Object.assign(new Error('Unauthorized'), { status: 401 });
+        return publicUser(user);
       },
       async updateMe(data) {
-        Object.assign(DEV_USER, data);
-        return DEV_USER;
+        const user = currentUser();
+        if (!user) throw Object.assign(new Error('Unauthorized'), { status: 401 });
+        return publicUser(store.update('User', user.id, data));
       },
     },
-    integrations,
+    integrations: makeIntegrations({ service: false }),
     functions: {
       async invoke(name, body) {
         const { invokeFunction } = await import('../functions.mjs');
@@ -105,7 +159,12 @@ function makeClient() {
       },
     },
   };
-  client.asServiceRole = client;
+  client.asServiceRole = {
+    entities: makeEntities({ service: true }),
+    integrations: makeIntegrations({ service: true }),
+    auth: client.auth,
+    functions: client.functions,
+  };
   return client;
 }
 

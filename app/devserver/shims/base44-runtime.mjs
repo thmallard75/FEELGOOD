@@ -10,6 +10,11 @@ const DEFAULTS = {
 
 export const secrets = {
   get(name) {
+    if (name === 'GEOFABRIK_SERVICE_KEY') {
+      return process.env.GEOFABRIK_SERVICE_KEY
+        || process.env.FEELGOOD_SERVICE_KEY
+        || (process.env.NODE_ENV === 'production' ? undefined : DEFAULTS.GEOFABRIK_SERVICE_KEY);
+    }
     return process.env[name] ?? DEFAULTS[name];
   },
 };

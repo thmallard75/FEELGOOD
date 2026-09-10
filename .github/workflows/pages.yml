@@ -1,8 +1,8 @@
 name: Demo Pages
 
 # Publie la version statique de demonstration de l'application sur GitHub
-# Pages. Le contenu vient de app/demo/demo-snapshot.json, versionne : le build
-# n'appelle donc ni backend ni reseau.
+# Pages. L'instantane fournit les trajets de demo ; l'analyse d'un nouveau
+# trajet s'execute dans le navigateur (Overpass au runtime).
 #
 # Prerequis, une seule fois : Settings > Pages > Source = GitHub Actions.
 
@@ -12,6 +12,7 @@ on:
       - main
       - cursor/import-feelgood-app-cf00
       - cursor/mobile-app-test-460e
+      - cursor/fix-trip-after-drive-592e
     paths:
       - 'app/**'
       - '.github/workflows/pages.yml'

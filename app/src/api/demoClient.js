@@ -1,17 +1,19 @@
 /**
  * Client du mode demonstration.
  *
- * La version publiee en pages statiques n'a pas de backend : ce client rend la
- * meme surface que le SDK Base44, servie depuis un instantane produit par
- * devserver/export-demo.mjs. Les trajets, scores et evenements qu'il contient
- * ont ete calcules par les vraies fonctions backend au moment de l'export.
+ * La version publiee en pages statiques n'a pas de serveur : ce client rend la
+ * meme surface que le SDK Base44, servie depuis un instantane + le MemoryStore.
+ * Les fonctions metier (analyzeTrip, computeCoaching, osmProxy, …) s'executent
+ * dans le navigateur, sur le vrai code de base44/functions/.
  *
- * Les ecritures sont persistees dans localStorage (APK / PWA) pour survivre
- * a un rechargement. Un instantane plus recent les remplace.
+ * Les ecritures sont persistees dans localStorage (PWA / iOS) pour survivre
+ * a un rechargement. Un instantane plus recent les replace.
  */
 
 import { MemoryStore } from '@/lib/memoryStore';
 import { functionKey, SNAPSHOT_FILE } from '@/lib/demoSnapshot';
+import { bindDemoBackend } from '@/api/browserSdk';
+import { canRunLocally, runLocalFunction } from '@/api/runLocalFunction';
 
 const LS_KEY = 'feelgood-test-store-v1';
 
@@ -58,6 +60,27 @@ function splitFields(fields) {
   return Array.isArray(fields) ? fields : String(fields).split(',');
 }
 
+function persistStore(snapshot, store) {
+  const payload = {
+    generated_at: snapshot.generated_at,
+    user: snapshot.user,
+    entities: store.toJSON(),
+  };
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(payload));
+    return;
+  } catch {
+    // Quota : on retente sans le cache OSM, souvent le plus volumineux.
+  }
+  try {
+    const slim = { ...payload, entities: { ...payload.entities } };
+    delete slim.entities.OsmTileCache;
+    localStorage.setItem(LS_KEY, JSON.stringify(slim));
+  } catch {
+    // Le test continue en memoire.
+  }
+}
+
 export async function createDemoClient() {
   const url = `${import.meta.env.BASE_URL}${SNAPSHOT_FILE}`;
   const res = await fetch(url);
@@ -80,21 +103,36 @@ export async function createDemoClient() {
     store.replaceAll(snapshot.entities);
   }
 
-  const persist = () => {
-    try {
-      localStorage.setItem(LS_KEY, JSON.stringify({
-        generated_at: snapshot.generated_at,
-        user: snapshot.user,
-        entities: store.toJSON(),
-      }));
-    } catch {
-      // Quota depassee — le test continue en memoire.
-    }
-  };
+  const persist = () => persistStore(snapshot, store);
   store.onChange = persist;
   persist();
 
+  bindDemoBackend({
+    store,
+    user: snapshot.user,
+    invoke: (name, args) => runLocalFunction(name, args),
+  });
+
   const entities = entityProxy(store);
+
+  // Reprend les trajets bloques (pending_analysis / pending_osm / syncing)
+  // — cas typique : trajet termine avant que l'analyse locale soit disponible.
+  queueMicrotask(() => {
+    const stuck = store.query('Trip', {
+      q: { status: { $in: ['pending_analysis', 'pending_osm', 'syncing', 'recording'] } },
+    });
+    for (const trip of stuck) {
+      if (!trip.gps_track || trip.gps_track.length < 5) {
+        if (trip.status === 'recording') {
+          store.update('Trip', trip.id, { status: 'completed' });
+        }
+        continue;
+      }
+      runLocalFunction('analyzeTrip', { tripId: trip.id }).catch((err) => {
+        console.warn(`[demo] reprise analyse ${trip.id}:`, err?.message || err);
+      });
+    }
+  });
 
   return {
     entities,
@@ -122,6 +160,9 @@ export async function createDemoClient() {
     },
     functions: {
       async invoke(name, args) {
+        if (canRunLocally(name)) {
+          return runLocalFunction(name, args);
+        }
         const frozen = snapshot.functions[functionKey(name, args)];
         if (frozen) return { status: 200, data: frozen };
         throw new DemoUnavailable(`La fonction ${name}`);

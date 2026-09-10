@@ -26,10 +26,27 @@
 	<true/>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>fr.feelgood.conduite</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>feelgood</string>
+				<string>FeelGood</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>FeelGood enregistre ta position pendant un trajet pour analyser ta conduite. Les destinations restent sur ton iPhone.</string>
+	<string>FeelGood enregistre ta position pendant un trajet. L’analyse de conduite (scores, carte routière) est faite sur ton serveur, pas sur un cloud tiers.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>FeelGood peut continuer à suivre ta position si tu quittes l’app pendant un trajet, uniquement le temps de l’enregistrement.</string>
+	<string>FeelGood peut continuer à suivre ta position si tu quittes l’app pendant un trajet, uniquement le temps de l’enregistrement. Les scores sont ensuite calculés sur ton serveur.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>

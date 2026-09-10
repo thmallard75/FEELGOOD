@@ -226,7 +226,10 @@ async function fetchEndpoint(url, query, extSignal) {
   try {
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'FeelGoodConduite/1.0' },
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'FeelGoodConduite/1.0 (https://github.com/thmallard75/FEELGOOD)',
+      },
       body: `data=${encodeURIComponent(query)}`,
       signal: ctrl.signal,
     });

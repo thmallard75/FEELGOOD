@@ -93,6 +93,6 @@ export async function invokeFunction(name, payload, headers = {}) {
     return { status: response.status, data };
   } catch (e) {
     console.error(`[dev-api] ${name} a leve:`, e);
-    return { status: 500, data: { error: e.message } };
+    return { status: e.status || 500, data: { error: e.message } };
   }
 }

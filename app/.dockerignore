@@ -1,0 +1,12 @@
+node_modules
+dist
+ios
+android
+devserver/.data
+*.log
+.env
+.env.local
+.git
+coverage
+demo
+*.md

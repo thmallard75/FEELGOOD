@@ -8,13 +8,10 @@ Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
   const user = await base44.auth.me();
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  if (user.role !== 'admin') return Response.json({ error: 'Forbidden' }, { status: 403 });
 
-  // Optionnel : `limit` ne retraiter que les N derniers trajets
   const { limit } = await req.json().catch(() => ({})) || {};
-  // Récupérer tous les trajets complétés avec une trace GPS (+ pending_osm pour rattrapage)
-  let trips = await base44.asServiceRole.entities.Trip.filter({ status: 'completed' }, '-created_date', 200);
-  const pending = await base44.asServiceRole.entities.Trip.filter({ status: 'pending_osm' }, '-created_date', 200);
+  let trips = await base44.asServiceRole.entities.Trip.filter({ created_by_id: user.id, status: 'completed' }, '-created_date', 200);
+  const pending = await base44.asServiceRole.entities.Trip.filter({ created_by_id: user.id, status: 'pending_osm' }, '-created_date', 200);
   trips = [...trips, ...pending];
   let toProcess = trips.filter(t => t.gps_track && t.gps_track.length >= 5);
   if (limit && limit > 0) toProcess = toProcess.slice(0, limit);

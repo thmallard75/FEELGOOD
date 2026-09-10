@@ -3,6 +3,7 @@
  */
 
 import { Capacitor } from '@capacitor/core';
+import { consumeOAuthPending, isNativeAuthUrl } from '@/lib/oauthPending';
 
 export const isNative = Capacitor.isNativePlatform();
 
@@ -32,6 +33,20 @@ export async function initNativeShell() {
         window.history.back();
       } else {
         App.exitApp();
+      }
+    });
+    App.addListener('appUrlOpen', ({ url }) => {
+      try {
+        if (!isNativeAuthUrl(url)) return;
+        const parsed = new URL(url);
+        const token = parsed.searchParams.get('access_token');
+        if (token && consumeOAuthPending()) {
+          window.localStorage.setItem('base44_access_token', token);
+          import('@capacitor/browser').then(({ Browser }) => Browser.close()).catch(() => {});
+          window.location.replace('/');
+        }
+      } catch (e) {
+        console.warn('[native] appUrlOpen:', e?.message || e);
       }
     });
   } catch (err) {

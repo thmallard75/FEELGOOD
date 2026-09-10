@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { DEV_USER, store } from './store.mjs';
+import { ensureSeedUser } from './auth.mjs';
 import { buildRoute, injectHarshBraking, trackFromRoute, trackStats } from './routes.mjs';
 
 const FIXTURES = join(import.meta.dirname, 'fixtures');
@@ -88,15 +89,22 @@ function parentStatsFrom(trips) {
 }
 
 export async function seed({ force = false } = {}) {
-  if (!force && store.load()) {
+  if (process.env.FEELGOOD_SEED === '0' && !force) {
+    if (store.restored) console.log('[api] etat recharge (comptes et trajets conserves)');
+    else console.log('[api] magasin vide — les trajets arriveront depuis l\'app');
+    return;
+  }
+  if (!force && store.restored) {
     console.log('[dev-api] etat precedent recharge (npm run dev:reset pour repartir du seed)');
     return;
   }
 
   store.replaceAll({});
+  ensureSeedUser();
+  console.log(`[dev-api] compte seed ${DEV_USER.email} (mot de passe: ${process.env.FEELGOOD_USER_PASSWORD || 'feelgood-dev'})`);
 
   const tiles = readFixture('osm_tiles_dossenheim.json');
-  store.bulkCreate('OsmTileCache', tiles.map((t) => ({ ...t, cached_at: new Date().toISOString() })));
+  await Promise.resolve(store.bulkCreate('OsmTileCache', tiles.map((t) => ({ ...t, cached_at: new Date().toISOString() }))));
 
   store.create('DepartementPreload', {
     code: '67', name: 'Bas-Rhin', status: 'done',
@@ -141,6 +149,7 @@ export async function seed({ force = false } = {}) {
     young_driver_name: DEV_USER.full_name,
     parent_email: DEV_USER.email,
     status: 'active',
+    invite_code: 'SEEDCODE',
     ...parentStatsFrom(analysed),
   });
 

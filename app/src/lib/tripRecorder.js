@@ -291,12 +291,29 @@ export class TripRecorder {
       });
     }
 
-    // ── Déclencher l'analyse complète en backend (non bloquant) ─────────────
-    base44.functions.invoke('analyzeTrip', { tripId: this.tripId }).catch(err => {
+    // ── Analyse sur le serveur. En cas d'échec / timeout on NE marque PAS
+    // completed : BilanConduite continue de poller pending_analysis, et le
+    // serveur peut encore écrire les KPI après un abort client.
+    let analysisOk = false;
+    try {
+      const result = await base44.functions.invoke('analyzeTrip', { tripId: this.tripId });
+      if (result?.status >= 400 && !result?.data?.ok) {
+        throw new Error(result.data?.error || `analyse HTTP ${result.status}`);
+      }
+      analysisOk = Boolean(result?.data?.ok) || (result?.ok && result?.status < 400);
+    } catch (err) {
       console.warn('Analyse backend échouée:', err.message);
-    });
+      try {
+        await base44.entities.Trip.update(this.tripId, {
+          status: 'pending_analysis',
+          osm_error: err.message,
+        });
+      } catch {
+        // Le trajet reste en pending_analysis.
+      }
+    }
 
-    return { tripId: this.tripId, distKm, durationMin };
+    return { tripId: this.tripId, distKm, durationMin, analysisOk };
   }
 
   // ─── Simulation GPS ───────────────────────────────────────────────────────

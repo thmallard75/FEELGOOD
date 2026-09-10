@@ -1,13 +1,9 @@
-// Backend de developpement local.
+// API FeelGood auto-hebergee (production Docker / npm start, et `npm run dev:local`).
 //
-// Reproduit les routes HTTP du backend Base44 que le SDK appelle, de sorte que
-// `npm run dev:local` fasse tourner l'application sans compte ni reseau. Les
-// fonctions ne sont pas simulees : ce sont celles de base44/functions qui
-// s'executent, via les substituts de devserver/shims.
-//
-// Lance par devserver/dev.mjs, ou seul avec :
-//   node --experimental-strip-types devserver/server.mjs
+// L'iPhone n'envoie que le GPS ; analyzeTrip calcule les KPI ici.
+// Comptes : e-mail, Google, Facebook, Apple — pas Base44.
 
+import { timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
 import { register } from 'node:module';
 import { pathToFileURL } from 'node:url';
@@ -15,35 +11,143 @@ import { join } from 'node:path';
 
 register(pathToFileURL(join(import.meta.dirname, 'loader.mjs')));
 
-const { DEV_USER, store } = await import('./store.mjs');
+const { store } = await import('./store.mjs');
 const { invokeFunction, listFunctions } = await import('./functions.mjs');
 const { seed } = await import('./seed.mjs');
+const { seedGrandEstDepartements } = await import('./geofabrik.mjs');
+const { requestContext } = await import('./context.mjs');
+const auth = await import('./auth.mjs');
+const { serveWeb, webEnabled } = await import('./web.mjs');
+const {
+  SHARED_ENTITIES,
+  scopedQuery,
+  canRead,
+  canWrite,
+  canDelete,
+  parentLinkPatchAllowed,
+  parentOwnedPatch,
+  presentRecord,
+  generateInviteCode,
+  stripOwnership,
+} = await import('./rls.mjs');
 
-const PORT = Number(process.env.DEV_API_PORT || 8787);
-const HOST = process.env.DEV_API_HOST || '127.0.0.1';
+const PORT = Number(process.env.PORT || process.env.DEV_API_PORT || 8787);
+const HOST = process.env.HOST
+  || process.env.DEV_API_HOST
+  || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1');
+const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
+
+const USER_FUNCTIONS = new Set([
+  'analyzeTrip',
+  'computeCoaching',
+  'reanalyzeAllTrips',
+  'deleteUserData',
+  'prefetchRegion',
+  'getOsmFeatures',
+  'osmProxy',
+  'sendWeeklySummary',
+]);
+
+const CRON_FUNCTIONS = new Set([
+  'retryPendingOsm',
+  'retryPendingDownloads',
+  'getPendingDepartements',
+  'importGeofabrikTiles',
+  'detectDepartementsToPreload',
+]);
+
+function keysMatch(provided, expected) {
+  if (!provided || !expected) return false;
+  const a = Buffer.from(String(provided), 'utf8');
+  const b = Buffer.from(String(expected), 'utf8');
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+function expectedServiceKeys() {
+  const keys = [process.env.FEELGOOD_SERVICE_KEY, process.env.GEOFABRIK_SERVICE_KEY].filter(Boolean);
+  if (!keys.length && process.env.NODE_ENV !== 'production') keys.push('dev-geofabrik-key');
+  return keys;
+}
+
+function hasServiceKey(req) {
+  const provided = req.headers['x-service-key'];
+  return expectedServiceKeys().some((expected) => keysMatch(provided, expected));
+}
+
+function serviceHeaders(req) {
+  const key = req.headers['x-service-key'];
+  return key ? { 'x-service-key': key } : {};
+}
+
+function osmTileListAllowed(q) {
+  if (!q) return true;
+  const keys = Object.keys(q);
+  if (keys.length !== 1 || keys[0] !== 'cell_key') return false;
+  const cell = q.cell_key;
+  if (typeof cell === 'string' && cell.length > 0 && cell.length < 64) return true;
+  if (cell && Array.isArray(cell.$in)) {
+    if (cell.$in.length === 0 || cell.$in.length > 200) return false;
+    return cell.$in.every((k) => typeof k === 'string' && k.length > 0 && k.length < 64);
+  }
+  return false;
+}
+
+function corsHeaders(req) {
+  const origin = CORS_ORIGIN === '*' ? (req?.headers?.origin || '*') : CORS_ORIGIN;
+  return {
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-service-key',
+    'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+    Vary: 'Origin',
+  };
+}
 
 function send(res, status, payload) {
   const body = payload === undefined ? '' : JSON.stringify(payload);
   res.writeHead(status, {
     'Content-Type': 'application/json',
     'Content-Length': Buffer.byteLength(body),
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': '*',
-    'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+    ...corsHeaders(res.req),
   });
   res.end(body);
 }
 
-async function readJson(req) {
+function redirect(res, location) {
+  res.writeHead(302, { Location: location, ...corsHeaders(res.req) });
+  res.end();
+}
+
+const MAX_AUTH_BYTES = 64 * 1024;
+const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 16 * 1024 * 1024);
+
+async function readRaw(req, max = MAX_BODY_BYTES) {
   const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
-  if (!chunks.length) return undefined;
-  const raw = Buffer.concat(chunks).toString('utf8');
+  let n = 0;
+  for await (const chunk of req) {
+    n += chunk.length;
+    if (n > max) {
+      const err = new Error('Requete trop volumineuse');
+      err.status = 413;
+      throw err;
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+async function readJson(req, max = MAX_BODY_BYTES) {
+  const raw = await readRaw(req, max);
+  if (!raw) return undefined;
   try {
-    return raw ? JSON.parse(raw) : undefined;
+    return JSON.parse(raw);
   } catch {
     return undefined;
   }
+}
+
+function parseForm(raw) {
+  return Object.fromEntries(new URLSearchParams(raw));
 }
 
 function queryOptions(url) {
@@ -61,21 +165,149 @@ function queryOptions(url) {
 function publicSettings(appId) {
   return {
     id: appId,
-    name: 'FeelGood Drive (developpement)',
+    name: 'FeelGood Conduite',
     public_settings: {
-      app_name: 'FeelGood Drive',
-      auth_required: false,
+      app_name: 'FeelGood Conduite',
+      auth_required: true,
       allow_signup: true,
-      theme: 'light',
+      theme: 'dark',
     },
   };
 }
 
+async function authRoutes(req, res, url, parts) {
+  // /api/apps/auth/<provider>/login
+  // /api/apps/auth/callback/<provider>
+  // /api/apps/auth/logout
+  // /api/apps/feelgood/auth/(login|register|providers|logout)
+  const scope = parts[2];
+  const a = scope === 'auth' ? parts[3] : parts[4];
+  const b = scope === 'auth' ? parts[4] : parts[5];
+
+  if (a === 'providers') {
+    return send(res, 200, auth.configuredProviders());
+  }
+
+  if (a === 'logout') {
+    const from = auth.safeFromUrl(url.searchParams.get('from_url'), process.env.APP_PUBLIC_URL || '/', req);
+    return redirect(res, from);
+  }
+
+  if (a === 'register' && req.method === 'POST') {
+    try {
+      const user = auth.registerEmailUser(await readJson(req, MAX_AUTH_BYTES) || {});
+      return send(res, 201, { user: auth.publicUser(user), access_token: auth.tokenFor(user) });
+    } catch (e) {
+      return send(res, e.status || 400, { error: e.message });
+    }
+  }
+
+  if (a === 'login' && req.method === 'POST' && scope !== 'auth') {
+    try {
+      const user = auth.loginEmailUser(await readJson(req, MAX_AUTH_BYTES) || {});
+      return send(res, 200, { user: auth.publicUser(user), access_token: auth.tokenFor(user) });
+    } catch (e) {
+      return send(res, e.status || 401, { error: e.message });
+    }
+  }
+
+  const providers = ['google', 'facebook', 'apple'];
+  if (providers.includes(a) && b === 'login') {
+    if (!auth.configuredProviders()[a]) {
+      return send(res, 400, { error: `${a} n’est pas configuré sur ce serveur (variables d’environnement manquantes).` });
+    }
+    const from = auth.safeFromUrl(url.searchParams.get('from_url'), process.env.APP_PUBLIC_URL, req);
+    return redirect(res, auth.oauthStartUrl(req, a, from));
+  }
+
+  if (a === 'callback' && providers.includes(b)) {
+    let code = url.searchParams.get('code');
+    let state = url.searchParams.get('state');
+    if (req.method === 'POST') {
+      const form = parseForm(await readRaw(req, MAX_AUTH_BYTES));
+      code = form.code || code;
+      state = form.state || state;
+    }
+    if (url.searchParams.get('error')) {
+      return send(res, 400, { error: url.searchParams.get('error_description') || 'Connexion annulée' });
+    }
+    try {
+      const result = await auth.finishOAuth(req, b, { code, state });
+      return redirect(res, result.redirect);
+    } catch (e) {
+      console.error(`[api] oauth ${b}:`, e);
+      return send(res, e.status || 400, { error: e.message });
+    }
+  }
+
+  return send(res, 404, { error: 'Route auth inconnue' });
+}
+
+async function functionsRoute(req, res, name) {
+  if (!name || !/^[\w-]+$/.test(name)) {
+    return send(res, 404, { error: 'Fonction inconnue' });
+  }
+  if (req.method !== 'GET' && req.method !== 'POST') {
+    return send(res, 405, { error: `Methode ${req.method} non geree` });
+  }
+  const privileged = hasServiceKey(req);
+  let payload = {};
+  if (req.method === 'POST') payload = await readJson(req) || {};
+
+  if (CRON_FUNCTIONS.has(name)) {
+    if (!privileged) return send(res, 403, { error: 'fonction reservee au serveur' });
+    const started = Date.now();
+    const { status, data } = await invokeFunction(name, payload, serviceHeaders(req));
+    console.log(`[api] fonction ${name} service -> ${status} (${Date.now() - started} ms)`);
+    return send(res, status, data);
+  }
+
+  const user = auth.userFromRequest(req);
+  if (!user) return send(res, 401, { error: 'auth_required', reason: 'auth_required' });
+
+  return requestContext.run({ user }, async () => {
+    if (!privileged && !USER_FUNCTIONS.has(name)) {
+      return send(res, 404, { error: `Fonction inconnue: ${name}` });
+    }
+    if (!privileged && name === 'sendWeeklySummary') payload = {};
+    if (name === 'analyzeTrip' && payload?.tripId) {
+      const trip = store.get('Trip', payload.tripId);
+      if (!canRead('Trip', trip, user)) {
+        return send(res, 404, { error: 'Trajet introuvable' });
+      }
+    }
+    if (name === 'computeCoaching' && payload?.tripId) {
+      const trip = store.get('Trip', payload.tripId);
+      if (!canRead('Trip', trip, user)) {
+        return send(res, 404, { error: 'Trajet introuvable' });
+      }
+    }
+    const started = Date.now();
+    const { status, data } = await invokeFunction(name, payload, serviceHeaders(req));
+    console.log(`[api] fonction ${name} user=${user.email} -> ${status} (${Date.now() - started} ms)`);
+    return send(res, status, data);
+  });
+}
+
 async function route(req, res, url) {
+  if (url.pathname === '/health' || url.pathname === '/api/health') {
+    return send(res, 200, { ok: true, service: 'feelgood-api' });
+  }
+  if (url.pathname === '/' && req.method === 'GET' && !webEnabled()) {
+    return send(res, 200, { ok: true, service: 'feelgood-api', health: '/health' });
+  }
   const parts = url.pathname.replace(/^\/+|\/+$/g, '').split('/');
-  // Attendu : api / apps / <appId|public> / ...
+  if (parts[0] === 'functions' && parts[1]) {
+    return functionsRoute(req, res, parts[1]);
+  }
   if (parts[0] !== 'api' || parts[1] !== 'apps') {
-    if (parts[0] === '__dev') return devRoute(req, res, parts.slice(1));
+    if (parts[0] === '__dev') {
+      if (process.env.FEELGOOD_DEV_ROUTES !== '1') {
+        return send(res, 404, { error: `Route non geree: ${url.pathname}` });
+      }
+      return devRoute(req, res, parts.slice(1));
+    }
+    if (serveWeb(req, res, url, corsHeaders(req))) return;
     return send(res, 404, { error: `Route non geree: ${url.pathname}` });
   }
 
@@ -85,77 +317,159 @@ async function route(req, res, url) {
     return send(res, 200, publicSettings(parts.at(-1)));
   }
 
-  if (scope === 'auth' && parts[3] === 'logout') {
-    const from = url.searchParams.get('from_url') || '/';
-    res.writeHead(302, { Location: from });
-    return res.end();
+  const isAuthRoute = scope === 'auth' || parts[3] === 'auth';
+  if (isAuthRoute) return authRoutes(req, res, url, parts);
+
+  if (parts[3] === 'integrations' && parts[4] === 'send-email') {
+    const user = auth.userFromRequest(req);
+    if (!user) return send(res, 401, { error: 'auth_required' });
+    const payload = await readJson(req) || {};
+    try {
+      const result = await auth.sendParentInviteEmail(user, payload);
+      return send(res, 200, result);
+    } catch (e) {
+      return send(res, e.status || 502, { error: e.message });
+    }
   }
 
-  const section = parts[3];
-
-  if (section === 'entities') {
-    return entitiesRoute(req, res, url, parts.slice(4));
+  if (parts[3] === 'functions') {
+    return functionsRoute(req, res, parts[4]);
   }
 
-  if (section === 'functions') {
-    const name = parts[4];
-    const payload = await readJson(req);
-    const headers = {};
-    if (req.headers['x-service-key']) headers['x-service-key'] = req.headers['x-service-key'];
-    const started = Date.now();
-    const { status, data } = await invokeFunction(name, payload, headers);
-    console.log(`[dev-api] fonction ${name} -> ${status} (${Date.now() - started} ms)`);
-    return send(res, status, data);
-  }
+  const user = auth.userFromRequest(req);
+  if (!user) return send(res, 401, { error: 'auth_required', reason: 'auth_required' });
 
-  return send(res, 404, { error: `Route non geree: ${url.pathname}` });
+  return requestContext.run({ user }, async () => {
+    const section = parts[3];
+    if (section === 'entities') {
+      return entitiesRoute(req, res, url, parts.slice(4), user);
+    }
+    return send(res, 404, { error: `Route non geree: ${url.pathname}` });
+  });
 }
 
-async function entitiesRoute(req, res, url, rest) {
+async function entitiesRoute(req, res, url, rest, user) {
   const [entity, tail] = rest;
+  const recOf = (value) => Promise.resolve(value);
 
   if (entity === 'User' && tail === 'me') {
     if (req.method === 'PUT') {
-      Object.assign(DEV_USER, await readJson(req));
+      const patch = await readJson(req) || {};
+      const allowed = {};
+      for (const key of ['full_name', 'profile_type', 'notifications', 'active_reward']) {
+        if (patch[key] !== undefined) allowed[key] = patch[key];
+      }
+      store.update('User', user.id, allowed);
     }
-    return send(res, 200, DEV_USER);
+    return send(res, 200, auth.publicUser(store.get('User', user.id) || user));
+  }
+
+  if (entity === 'User') {
+    return send(res, 403, { error: 'Liste des comptes interdite' });
   }
 
   if (!entity) return send(res, 404, { error: 'Entite manquante' });
 
+  if (req.method !== 'GET' && SHARED_ENTITIES.has(entity)) {
+    await readRaw(req);
+    return send(res, 403, { error: 'Cache cartographique en lecture seule' });
+  }
+
   switch (req.method) {
     case 'GET': {
       if (tail) {
-        const rec = store.get(entity, tail);
-        return rec ? send(res, 200, rec) : send(res, 404, { error: `${entity} ${tail} introuvable` });
+        const rec = await recOf(store.get(entity, tail));
+        return canRead(entity, rec, user)
+          ? send(res, 200, presentRecord(entity, rec, user))
+          : send(res, 404, { error: `${entity} ${tail} introuvable` });
       }
-      return send(res, 200, store.query(entity, queryOptions(url)));
+      const opts = queryOptions(url);
+      opts.q = scopedQuery(entity, user, opts.q);
+      if (entity === 'OsmTileCache' && !osmTileListAllowed(opts.q)) {
+        return send(res, 400, { error: 'Filtre OsmTileCache non autorise' });
+      }
+      if (entity === 'OsmTileCache') {
+        opts.limit = Math.min(Number(opts.limit) || 200, 200);
+      }
+      const rows = await recOf(store.query(entity, opts));
+      return send(res, 200, rows.map((rec) => presentRecord(entity, rec, user)));
     }
     case 'POST': {
-      const body = await readJson(req);
-      if (tail === 'bulk') return send(res, 200, store.bulkCreate(entity, body));
-      return send(res, 201, store.create(entity, body));
+      const body = stripOwnership(await readJson(req)) || {};
+      if (entity === 'ParentLink') {
+        body.young_driver_email = user.email;
+        body.status = 'pending';
+        body.invite_code = generateInviteCode();
+      }
+      if (tail === 'bulk') {
+        const rows = (Array.isArray(body) ? body : [body]).map((row) => {
+          const next = stripOwnership(row);
+          if (entity === 'ParentLink') {
+            next.young_driver_email = user.email;
+            next.status = 'pending';
+            next.invite_code = generateInviteCode();
+          }
+          return next;
+        });
+        return send(res, 200, store.bulkCreate(entity, rows, user).map((rec) => presentRecord(entity, rec, user)));
+      }
+      return send(res, 201, presentRecord(entity, store.create(entity, body, user), user));
     }
     case 'PUT': {
-      const body = await readJson(req);
-      if (tail === 'bulk') return send(res, 200, store.bulkUpdate(entity, body));
-      const rec = store.update(entity, tail, body);
-      return rec ? send(res, 200, rec) : send(res, 404, { error: `${entity} ${tail} introuvable` });
+      const body = stripOwnership(await readJson(req)) || {};
+      if (tail === 'bulk') {
+        const allowed = [];
+        for (const row of Array.isArray(body) ? body : []) {
+          const rec = store.get(entity, row.id);
+          if (!canWrite(entity, rec, user)) continue;
+          const patch = { ...stripOwnership(row) };
+          if (entity === 'ParentLink' && !parentLinkPatchAllowed(rec, user, patch)) continue;
+          allowed.push({ id: row.id, ...parentOwnedPatch(rec, user, patch) });
+        }
+        return send(res, 200, store.bulkUpdate(entity, allowed).map((rec) => presentRecord(entity, rec, user)));
+      }
+      const rec = store.get(entity, tail);
+      if (!canWrite(entity, rec, user)) return send(res, 404, { error: `${entity} ${tail} introuvable` });
+      if (entity === 'ParentLink' && !parentLinkPatchAllowed(rec, user, body)) {
+        return send(res, 403, { error: 'Modification parent interdite' });
+      }
+      return send(res, 200, presentRecord(entity, store.update(entity, tail, parentOwnedPatch(rec, user, body)), user));
     }
     case 'PATCH': {
       const body = await readJson(req);
       if (tail === 'update-many') {
-        return send(res, 200, store.updateMany(entity, body?.query, body?.data));
+        const q = scopedQuery(entity, user, body?.query);
+        if (entity === 'ParentLink') {
+          const rows = await recOf(store.query(entity, { q }));
+          if (rows.some((rec) => !parentLinkPatchAllowed(rec, user, body?.data))) {
+            return send(res, 403, { error: 'Modification parent interdite' });
+          }
+          const { invite_code: _code, ...data } = body?.data || {};
+          return send(res, 200, await recOf(store.updateMany(entity, q, data)));
+        }
+        return send(res, 200, await recOf(store.updateMany(entity, q, body?.data)));
       }
       return send(res, 404, { error: 'PATCH non gere' });
     }
     case 'DELETE': {
       if (tail) {
-        return store.remove(entity, tail)
-          ? send(res, 200, { ok: true })
-          : send(res, 404, { error: `${entity} ${tail} introuvable` });
+        const rec = await recOf(store.get(entity, tail));
+        const removed = rec && canDelete(entity, rec, user)
+          ? await recOf(store.remove(entity, tail))
+          : false;
+        if (!removed) {
+          return send(res, 404, { error: `${entity} ${tail} introuvable` });
+        }
+        return send(res, 200, { ok: true });
       }
-      return send(res, 200, store.deleteMany(entity, await readJson(req)));
+      const q = scopedQuery(entity, user, await readJson(req));
+      if (entity === 'ParentLink') {
+        const rows = await recOf(store.query(entity, { q }));
+        if (rows.some((rec) => !canDelete(entity, rec, user))) {
+          return send(res, 403, { error: 'Suppression parent interdite' });
+        }
+      }
+      return send(res, 200, await recOf(store.deleteMany(entity, q)));
     }
     default:
       return send(res, 405, { error: `Methode ${req.method} non geree` });
@@ -164,7 +478,7 @@ async function entitiesRoute(req, res, url, rest) {
 
 async function devRoute(req, res, parts) {
   if (parts[0] === 'state') {
-    return send(res, 200, { user: DEV_USER, counts: store.counts(), functions: listFunctions() });
+    return send(res, 200, { counts: store.counts(), functions: listFunctions(), providers: auth.configuredProviders() });
   }
   if (parts[0] === 'reseed') {
     await seed({ force: true });
@@ -178,15 +492,31 @@ const server = createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   route(req, res, url).catch((e) => {
     console.error('[dev-api] erreur non rattrapee:', e);
-    send(res, 500, { error: e.message });
+    send(res, e.status || 500, { error: e.message });
   });
 });
 
+await store.ready();
 await seed();
+const geoQueued = seedGrandEstDepartements();
+
+async function shutdown(signal) {
+  console.log(`[api] ${signal} — sauvegarde`);
+  try { await store.flush(); } catch (e) { console.error('[api] flush:', e.message); }
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 4000).unref?.();
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 server.listen(PORT, HOST, () => {
   const counts = store.counts();
-  console.log(`[dev-api] pret sur http://${HOST}:${PORT}`);
-  console.log(`[dev-api] entites: ${Object.entries(counts).map(([k, v]) => `${k}=${v}`).join(' ') || '(vide)'}`);
-  console.log(`[dev-api] fonctions: ${listFunctions().join(', ')}`);
+  const providers = auth.configuredProviders();
+  console.log(`[api] pret sur http://${HOST}:${PORT}`);
+  console.log(`[api] auth: ${Object.entries(providers).filter(([, v]) => v).map(([k]) => k).join(', ')}`);
+  console.log(`[api] entites: ${Object.entries(counts).map(([k, v]) => `${k}=${v}`).join(' ') || '(vide)'}`);
+  console.log(`[api] fonctions: ${listFunctions().join(', ')}`);
+  console.log(`[api] web: ${webEnabled() ? 'build Vite (connexion reelle)' : 'API seule'}`);
+  console.log(`[api] persistance: ${store.backend}`);
+  if (geoQueued.length) console.log(`[api] Geofabrik pending: ${geoQueued.join(', ')}`);
 });

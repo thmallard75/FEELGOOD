@@ -80,7 +80,11 @@ export default function Profile() {
     const res = await base44.functions.invoke('reanalyzeAllTrips', {});
     setReanalyzeResult(res.data);
     setReanalyzing(false);
-    toast.success(`${res.data.success} trajet(s) recalculé(s) sur ${res.data.total}`);
+    if (res.status >= 400) {
+      toast.error(res.data?.error || 'Échec du recalcul');
+      return;
+    }
+    toast.success(`${res.data?.success ?? 0} trajet(s) recalculé(s) sur ${res.data?.total ?? 0}`);
   };
 
   const handleSendSummary = async () => {
@@ -273,7 +277,7 @@ export default function Profile() {
       </Card>
 
       {/* Admin: Recalculer tous les trajets */}
-      {user?.role === 'admin' && !base44.isDemo && (
+      {user?.role === 'admin' && (
         <Card className="p-5 bg-card border-border space-y-3">
           <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
             <RefreshCw className="w-4 h-4 text-primary" />
@@ -322,6 +326,10 @@ export default function Profile() {
           Se déconnecter
         </Button>
       )}
+
+      <p className="text-center text-xs text-muted-foreground">
+        <a href="/confidentialite" className="hover:underline">Politique de confidentialité</a>
+      </p>
 
       {/* Delete Account — required by Apple */}
       <AlertDialog>
