@@ -330,7 +330,8 @@ async function entitiesRoute(req, res, url, rest, user) {
           .filter((row) => {
             const rec = store.get(entity, row.id);
             if (!canWrite(entity, rec, user)) return false;
-            if (entity === 'ParentLink' && !parentLinkPatchAllowed(rec, user, row)) return false;
+            const { id: _id, ...patch } = row;
+            if (entity === 'ParentLink' && !parentLinkPatchAllowed(rec, user, patch)) return false;
             return true;
           });
         return send(res, 200, store.bulkUpdate(entity, allowed));

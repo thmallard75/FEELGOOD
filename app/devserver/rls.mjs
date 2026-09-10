@@ -57,7 +57,10 @@ export function parentLinkPatchAllowed(rec, user, patch = {}) {
   if (!canWrite('ParentLink', rec, user)) return false;
   if (!isParentOnly(rec, user)) return true;
   if (rec.status === 'revoked') return false;
-  const keys = Object.keys(patch).filter((key) => patch[key] !== undefined);
+  const keys = Object.keys(patch).filter((key) => (
+    patch[key] !== undefined
+    && !['id', 'updated_date', 'created_date', 'created_by', 'created_by_id'].includes(key)
+  ));
   if (keys.some((key) => key !== 'status')) return false;
   if (patch.status && patch.status !== 'active') return false;
   if (patch.status === 'active' && rec.status !== 'pending') return false;

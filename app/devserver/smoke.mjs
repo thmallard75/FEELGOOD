@@ -202,9 +202,11 @@ const rewrite = await req('PUT', `/api/apps/${APP}/entities/ParentLink/${invite.
   weekly_score: 99,
 });
 if (rewrite.status !== 403) fail(`parent rewrite devrait etre 403, pas ${rewrite.status}`);
-const accept = await req('PUT', `/api/apps/${APP}/entities/ParentLink/${invite.data.id}`, { status: 'active' });
-if (!accept.ok || accept.data.status !== 'active') {
-  fail(`parent activate -> ${accept.status} ${JSON.stringify(accept.data)}`);
+const accept = await req('PUT', `/api/apps/${APP}/entities/ParentLink/bulk`, [
+  { id: invite.data.id, status: 'active' },
+]);
+if (!accept.ok || accept.data?.[0]?.status !== 'active') {
+  fail(`parent bulk activate -> ${accept.status} ${JSON.stringify(accept.data)}`);
 }
 token = original;
 console.log('[smoke] parent ne reecrit pas l\'invitation');
