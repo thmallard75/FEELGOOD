@@ -182,7 +182,6 @@ class PgTileStore {
       this.count += inserted;
     } catch (e) {
       try { await client.query('ROLLBACK'); } catch { /* ignore */ }
-      await this.refreshCount();
       throw e;
     } finally {
       client.release();
