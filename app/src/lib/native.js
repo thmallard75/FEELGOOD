@@ -34,6 +34,19 @@ export async function initNativeShell() {
         App.exitApp();
       }
     });
+    App.addListener('appUrlOpen', ({ url }) => {
+      try {
+        const parsed = new URL(url);
+        const token = parsed.searchParams.get('access_token');
+        if (token) {
+          window.localStorage.setItem('base44_access_token', token);
+          import('@capacitor/browser').then(({ Browser }) => Browser.close()).catch(() => {});
+          window.location.replace('/');
+        }
+      } catch (e) {
+        console.warn('[native] appUrlOpen:', e?.message || e);
+      }
+    });
   } catch (err) {
     console.warn('[native] App:', err?.message || err);
   }

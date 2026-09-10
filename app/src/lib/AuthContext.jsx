@@ -1,11 +1,9 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import { base44 } from '@/api/base44Client';
 
 const AuthContext = createContext();
 
-const noLoginWall = import.meta.env.VITE_DEMO_MODE === 'true'
-  || import.meta.env.VITE_SELF_HOSTED === 'true'
-  || Boolean(import.meta.env.VITE_API_URL);
+const isDemo = import.meta.env.VITE_DEMO_MODE === 'true';
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -16,17 +14,12 @@ export const AuthProvider = ({ children }) => {
   const [authChecked, setAuthChecked] = useState(false);
   const [appPublicSettings, setAppPublicSettings] = useState(null);
 
-  useEffect(() => {
-    checkAppState();
-  }, []);
-
-  const checkAppState = async () => {
+  const checkAppState = useCallback(async () => {
     try {
       setIsLoadingPublicSettings(true);
       setAuthError(null);
 
-      // Demo PWA et app App Store auto-hebergee : pas de login Base44.
-      if (noLoginWall) {
+      if (isDemo) {
         const me = await base44.auth.me();
         setAppPublicSettings({ id: 'feelgood', public_settings: { auth_required: false } });
         setUser(me);
@@ -37,24 +30,35 @@ export const AuthProvider = ({ children }) => {
         return;
       }
 
-      setAuthError({
-        type: 'unknown',
-        message: 'Configure VITE_API_URL vers ton serveur FeelGood.',
-      });
+      setAppPublicSettings({ id: 'feelgood', public_settings: { auth_required: true, allow_signup: true } });
+      const me = await base44.auth.me();
+      setUser(me);
+      setIsAuthenticated(true);
       setIsLoadingPublicSettings(false);
       setIsLoadingAuth(false);
       setAuthChecked(true);
     } catch (error) {
-      console.error('Chargement du compte:', error);
-      setAuthError({
-        type: 'unknown',
-        message: error.message || 'Serveur FeelGood injoignable',
-      });
+      const needsLogin = error.status === 401 || error.data?.reason === 'auth_required' || error.data?.error === 'auth_required';
+      if (needsLogin) {
+        setAuthError({ type: 'auth_required' });
+        setIsAuthenticated(false);
+        setUser(null);
+      } else {
+        console.error('Chargement du compte:', error);
+        setAuthError({
+          type: 'unknown',
+          message: error.message || 'Serveur FeelGood injoignable',
+        });
+      }
       setIsLoadingPublicSettings(false);
       setIsLoadingAuth(false);
       setAuthChecked(true);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    checkAppState();
+  }, [checkAppState]);
 
   const checkUserAuth = async () => {
     try {
@@ -65,7 +69,6 @@ export const AuthProvider = ({ children }) => {
       setIsLoadingAuth(false);
       setAuthChecked(true);
     } catch (error) {
-      console.error('User auth check failed:', error);
       setIsLoadingAuth(false);
       setIsAuthenticated(false);
       setAuthChecked(true);
@@ -75,11 +78,12 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     setUser(null);
     setIsAuthenticated(false);
-    base44.auth.logout();
+    base44.auth.logout('/');
   };
 
   const navigateToLogin = () => {
-    base44.auth.redirectToLogin();
+    setAuthError({ type: 'auth_required' });
+    setIsAuthenticated(false);
   };
 
   return (

@@ -15,10 +15,15 @@ function fail(msg) {
   process.exit(1);
 }
 
+let token = '';
+
 async function req(method, path, body) {
+  const headers = { Accept: 'application/json' };
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(`${API}${path}`, {
     method,
-    headers: body !== undefined ? { 'Content-Type': 'application/json', Accept: 'application/json' } : { Accept: 'application/json' },
+    headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   const text = await res.text();
@@ -41,8 +46,24 @@ const health = await req('GET', '/health');
 if (!health.ok || health.data?.ok !== true) fail(`/health -> ${health.status} ${JSON.stringify(health.data)}`);
 console.log('[smoke] /health ok');
 
+const unauth = await req('GET', `/api/apps/${APP}/entities/User/me`);
+if (unauth.status !== 401) fail(`User/me sans jeton devrait etre 401, pas ${unauth.status}`);
+console.log('[smoke] 401 sans compte');
+
+const email = `smoke-${Date.now()}@feelgood.local`;
+const registered = await req('POST', `/api/apps/${APP}/auth/register`, {
+  email,
+  password: 'smoke-pass-1',
+  full_name: 'Smoke',
+});
+if (!registered.ok || !registered.data?.access_token) {
+  fail(`register -> ${registered.status} ${JSON.stringify(registered.data)}`);
+}
+token = registered.data.access_token;
+console.log(`[smoke] compte ${email}`);
+
 const me = await req('GET', `/api/apps/${APP}/entities/User/me`);
-if (!me.ok || !me.data?.id) fail(`User/me -> ${me.status} ${JSON.stringify(me.data)}`);
+if (!me.ok || me.data?.email !== email) fail(`User/me -> ${me.status} ${JSON.stringify(me.data)}`);
 console.log(`[smoke] User/me ${me.data.email}`);
 
 const tiles = JSON.parse(readFileSync(join(FIXTURES, 'osm_tiles_dossenheim.json'), 'utf8'));
@@ -82,4 +103,16 @@ if (stored.data?.status === 'pending_analysis') {
   fail(`le trajet est reste en pending_analysis: ${JSON.stringify(stored.data)}`);
 }
 console.log(`[smoke] trajet persiste statut=${stored.data.status} score=${stored.data.overall_score}`);
-console.log('[smoke] OK — GPS sur le serveur, KPI renvoyes, pas Base44');
+
+const other = await req('POST', `/api/apps/${APP}/auth/register`, {
+  email: `other-${Date.now()}@feelgood.local`,
+  password: 'smoke-pass-1',
+  full_name: 'Autre',
+});
+const original = token;
+token = other.data.access_token;
+const peek = await req('GET', `/api/apps/${APP}/entities/Trip/${trip.data.id}`);
+if (peek.status !== 404) fail(`l'autre compte voit le trajet (${peek.status})`);
+token = original;
+console.log('[smoke] isolation des trajets ok');
+console.log('[smoke] OK — comptes + GPS sur le serveur, KPI renvoyes, pas Base44');

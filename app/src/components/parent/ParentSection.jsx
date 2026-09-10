@@ -49,7 +49,8 @@ export default function ParentSection({ user, trips }) {
     });
 
     // Envoyer l'email d'invitation
-    await base44.integrations.Core.SendEmail({
+    try {
+      await base44.integrations.Core.SendEmail({
       to: email.trim(),
       subject: `${user.full_name || 'Un jeune conducteur'} vous invite sur FeelGood Conduite`,
       body: `Bonjour,
@@ -71,12 +72,15 @@ L'accès peut être révoqué à tout moment par le conducteur.
 
 Bonne route !
 L'équipe FeelGood Conduite`,
-    });
+      });
+    } catch (err) {
+      console.warn('Invitation e-mail:', err.message);
+    }
 
     setLinks(prev => [...prev, link]);
     setEmail('');
     setLoading(false);
-    toast.success(`Invitation envoyée à ${email.trim()}`);
+    toast.success(`Invitation enregistrée pour ${email.trim()}`);
   };
 
   const handleRevoke = async (link) => {

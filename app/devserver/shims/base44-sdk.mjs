@@ -1,14 +1,11 @@
 // Substitut du SDK Base44 pour l'execution locale des fonctions backend.
-//
-// Les fonctions de base44/functions/*/entry.ts importent `npm:@base44/sdk`,
-// un specificateur Deno que Node ne sait pas resoudre. Le loader le redirige
-// ici, et ce module rend un client dont les entites tapent dans le magasin
-// local au lieu de partir en HTTP vers Base44. Le code metier des fonctions
-// s'execute donc reellement, sans reseau ni compte.
+// Entites = magasin local. auth.me() = utilisateur de la requete HTTP.
 
-import { DEV_USER, store } from '../store.mjs';
+import { store } from '../store.mjs';
+import { currentUser } from '../context.mjs';
+import { publicUser } from '../auth.mjs';
 
-function entityHandler(name) {
+function entityHandler(name, { service = false } = {}) {
   return {
     async list(sort, limit, skip, fields) {
       return store.query(name, { sort, limit, skip, fields: splitFields(fields) });
@@ -22,10 +19,10 @@ function entityHandler(name) {
       return rec;
     },
     async create(data) {
-      return store.create(name, data);
+      return store.create(name, data, currentUser() || undefined);
     },
     async bulkCreate(rows) {
-      return store.bulkCreate(name, rows);
+      return store.bulkCreate(name, rows, currentUser() || undefined);
     },
     async update(id, data) {
       const rec = store.update(name, id, data);
@@ -62,38 +59,41 @@ function notFound(name, id) {
   return err;
 }
 
-const entities = new Proxy({}, {
-  get(_target, name) {
-    if (typeof name !== 'string' || name.startsWith('_') || name === 'then') return undefined;
-    return entityHandler(name);
-  },
-});
+function makeEntities() {
+  return new Proxy({}, {
+    get(_target, name) {
+      if (typeof name !== 'string' || name.startsWith('_') || name === 'then') return undefined;
+      return entityHandler(name);
+    },
+  });
+}
 
-// Les appels LLM et e-mail n'ont pas d'equivalent local. Chaque appelant a
-// deja un repli documente (voir coachFallback dans kpiEngine), donc lever une
-// erreur explicite fait passer par ce chemin plutot que d'inventer une reponse.
 const integrations = {
   Core: {
     async InvokeLLM() {
       throw new Error('InvokeLLM indisponible dans le backend de developpement');
     },
     async SendEmail(payload) {
-      console.log(`[dev-api] SendEmail simule -> ${payload?.to}: ${payload?.subject}`);
-      return { ok: true, simulated: true };
+      const { sendAppEmail } = await import('../auth.mjs');
+      return sendAppEmail(payload);
     },
   },
 };
 
 function makeClient() {
+  const entities = makeEntities();
   const client = {
     entities,
     auth: {
       async me() {
-        return DEV_USER;
+        const user = currentUser();
+        if (!user) throw Object.assign(new Error('Unauthorized'), { status: 401 });
+        return publicUser(user);
       },
       async updateMe(data) {
-        Object.assign(DEV_USER, data);
-        return DEV_USER;
+        const user = currentUser();
+        if (!user) throw Object.assign(new Error('Unauthorized'), { status: 401 });
+        return publicUser(store.update('User', user.id, data));
       },
     },
     integrations,

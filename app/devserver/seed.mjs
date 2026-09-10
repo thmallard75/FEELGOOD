@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { DEV_USER, store } from './store.mjs';
+import { ensureSeedUser } from './auth.mjs';
 import { buildRoute, injectHarshBraking, trackFromRoute, trackStats } from './routes.mjs';
 
 const FIXTURES = join(import.meta.dirname, 'fixtures');
@@ -99,6 +100,8 @@ export async function seed({ force = false } = {}) {
   }
 
   store.replaceAll({});
+  ensureSeedUser();
+  console.log(`[dev-api] compte seed ${DEV_USER.email} (mot de passe: ${process.env.FEELGOOD_USER_PASSWORD || 'feelgood-dev'})`);
 
   const tiles = readFixture('osm_tiles_dossenheim.json');
   store.bulkCreate('OsmTileCache', tiles.map((t) => ({ ...t, cached_at: new Date().toISOString() })));

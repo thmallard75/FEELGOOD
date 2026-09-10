@@ -1,20 +1,38 @@
 /**
  * Client HTTP vers le serveur FeelGood auto-heberge.
  *
- * L'iPhone (App Store) et le navigateur parlent a TON serveur : creation du
- * trajet, puis `analyzeTrip` qui calcule les KPI. Aucun moteur OSM dans l'app.
+ * L'iPhone et le navigateur parlent a TON serveur. Les comptes (Google,
+ * Facebook, Apple, e-mail) vivent ici — pas sur Base44.
  */
 
 const APP = 'feelgood';
+const TOKEN_KEY = 'base44_access_token';
 
 function splitFields(fields) {
   if (!fields) return undefined;
   return Array.isArray(fields) ? fields : String(fields).split(',');
 }
 
+function readToken() {
+  if (typeof window === 'undefined') return '';
+  return window.localStorage.getItem(TOKEN_KEY) || '';
+}
+
 export async function createSelfHostedClient(apiBase = '') {
   const origin = apiBase
     || (typeof window !== 'undefined' ? window.location.origin : 'http://127.0.0.1:8787');
+  let memoryToken = '';
+
+  function token() {
+    return memoryToken || readToken();
+  }
+
+  function setToken(value) {
+    memoryToken = value || '';
+    if (typeof window === 'undefined') return;
+    if (value) window.localStorage.setItem(TOKEN_KEY, value);
+    else window.localStorage.removeItem(TOKEN_KEY);
+  }
 
   async function request(method, path, { query, body, signal } = {}) {
     const url = new URL(path.startsWith('/') ? path : `/${path}`, origin.endsWith('/') ? origin : `${origin}/`);
@@ -26,6 +44,8 @@ export async function createSelfHostedClient(apiBase = '') {
     }
     const headers = { Accept: 'application/json' };
     if (body !== undefined) headers['Content-Type'] = 'application/json';
+    const bearer = token();
+    if (bearer) headers.Authorization = `Bearer ${bearer}`;
     const res = await fetch(url.toString(), {
       method,
       headers,
@@ -39,7 +59,8 @@ export async function createSelfHostedClient(apiBase = '') {
     } catch {
       data = text;
     }
-    return { status: res.status, data, ok: res.ok };
+    const err = !res.ok ? Object.assign(new Error(data?.error || `HTTP ${res.status}`), { status: res.status, data }) : null;
+    return { status: res.status, data, ok: res.ok, error: err };
   }
 
   function entityPath(name, tail = '') {
@@ -47,67 +68,52 @@ export async function createSelfHostedClient(apiBase = '') {
     return `/api/apps/${APP}/entities/${name}${extra}`;
   }
 
+  function unwrap(result) {
+    if (!result.ok) throw result.error;
+    return result.data;
+  }
+
   function entityHandler(name) {
     return {
       async list(sort, limit, skip, fields) {
-        const { data, ok, status } = await request('GET', entityPath(name), {
+        return unwrap(await request('GET', entityPath(name), {
           query: { sort, limit, skip, fields: fields ? splitFields(fields).join(',') : undefined },
-        });
-        if (!ok) throw Object.assign(new Error(data?.error || `HTTP ${status}`), { status, data });
-        return data;
+        }));
       },
       async filter(q, sort, limit, skip, fields) {
-        const { data, ok, status } = await request('GET', entityPath(name), {
+        return unwrap(await request('GET', entityPath(name), {
           query: {
             q: q ? JSON.stringify(q) : undefined,
             sort, limit, skip,
             fields: fields ? splitFields(fields).join(',') : undefined,
           },
-        });
-        if (!ok) throw Object.assign(new Error(data?.error || `HTTP ${status}`), { status, data });
-        return data;
+        }));
       },
       async get(id) {
-        const { data, ok, status } = await request('GET', entityPath(name, id));
-        if (!ok) throw Object.assign(new Error(data?.error || `HTTP ${status}`), { status, data });
-        return data;
+        return unwrap(await request('GET', entityPath(name, id)));
       },
       async create(payload) {
-        const { data, ok, status } = await request('POST', entityPath(name), { body: payload });
-        if (!ok) throw Object.assign(new Error(data?.error || `HTTP ${status}`), { status, data });
-        return data;
+        return unwrap(await request('POST', entityPath(name), { body: payload }));
       },
       async bulkCreate(rows) {
-        const { data, ok, status } = await request('POST', entityPath(name, 'bulk'), { body: rows });
-        if (!ok) throw Object.assign(new Error(data?.error || `HTTP ${status}`), { status, data });
-        return data;
+        return unwrap(await request('POST', entityPath(name, 'bulk'), { body: rows }));
       },
       async update(id, payload) {
-        const { data, ok, status } = await request('PUT', entityPath(name, id), { body: payload });
-        if (!ok) throw Object.assign(new Error(data?.error || `HTTP ${status}`), { status, data });
-        return data;
+        return unwrap(await request('PUT', entityPath(name, id), { body: payload }));
       },
       async updateMany(q, payload) {
-        const { data, ok, status } = await request('PATCH', entityPath(name, 'update-many'), {
+        return unwrap(await request('PATCH', entityPath(name, 'update-many'), {
           body: { query: q, data: payload },
-        });
-        if (!ok) throw Object.assign(new Error(data?.error || `HTTP ${status}`), { status, data });
-        return data;
+        }));
       },
       async bulkUpdate(rows) {
-        const { data, ok, status } = await request('PUT', entityPath(name, 'bulk'), { body: rows });
-        if (!ok) throw Object.assign(new Error(data?.error || `HTTP ${status}`), { status, data });
-        return data;
+        return unwrap(await request('PUT', entityPath(name, 'bulk'), { body: rows }));
       },
       async delete(id) {
-        const { data, ok, status } = await request('DELETE', entityPath(name, id));
-        if (!ok) throw Object.assign(new Error(data?.error || `HTTP ${status}`), { status, data });
-        return data;
+        return unwrap(await request('DELETE', entityPath(name, id)));
       },
       async deleteMany(q) {
-        const { data, ok, status } = await request('DELETE', entityPath(name), { body: q });
-        if (!ok) throw Object.assign(new Error(data?.error || `HTTP ${status}`), { status, data });
-        return data;
+        return unwrap(await request('DELETE', entityPath(name), { body: q }));
       },
       subscribe() {
         return () => {};
@@ -122,16 +128,22 @@ export async function createSelfHostedClient(apiBase = '') {
     },
   });
 
+  async function oauthReturnUrl() {
+    if (typeof window === 'undefined') return '';
+    try {
+      const { Capacitor } = await import('@capacitor/core');
+      if (Capacitor.isNativePlatform()) return 'feelgood://auth';
+    } catch { /* web */ }
+    return `${window.location.origin}/`;
+  }
+
   const auth = {
+    setToken,
     async me() {
-      const { data, ok, status } = await request('GET', entityPath('User', 'me'));
-      if (!ok) throw Object.assign(new Error(data?.error || `HTTP ${status}`), { status, data });
-      return data;
+      return unwrap(await request('GET', entityPath('User', 'me')));
     },
     async updateMe(payload) {
-      const { data, ok, status } = await request('PUT', entityPath('User', 'me'), { body: payload });
-      if (!ok) throw Object.assign(new Error(data?.error || `HTTP ${status}`), { status, data });
-      return data;
+      return unwrap(await request('PUT', entityPath('User', 'me'), { body: payload }));
     },
     async isAuthenticated() {
       try {
@@ -141,8 +153,44 @@ export async function createSelfHostedClient(apiBase = '') {
         return false;
       }
     },
-    redirectToLogin() {},
-    logout() {},
+    async providers() {
+      const { data } = await request('GET', `/api/apps/${APP}/auth/providers`);
+      return data || { email: true };
+    },
+    async loginWithEmail(email, password) {
+      const result = await request('POST', `/api/apps/${APP}/auth/login`, { body: { email, password } });
+      const data = unwrap(result);
+      setToken(data.access_token);
+      return data.user;
+    },
+    async register(email, password, full_name) {
+      const result = await request('POST', `/api/apps/${APP}/auth/register`, { body: { email, password, full_name } });
+      const data = unwrap(result);
+      setToken(data.access_token);
+      return data.user;
+    },
+    async loginWithProvider(provider, fromUrl) {
+      const from = fromUrl || await oauthReturnUrl();
+      const start = `${origin}/api/apps/auth/${provider}/login?from_url=${encodeURIComponent(from)}`;
+      try {
+        const { Capacitor } = await import('@capacitor/core');
+        if (Capacitor.isNativePlatform()) {
+          const { Browser } = await import('@capacitor/browser');
+          await Browser.open({ url: start });
+          return;
+        }
+      } catch {
+        // Navigateur ou plugin absent : redirection classique.
+      }
+      window.location.href = start;
+    },
+    redirectToLogin() {
+      if (typeof window !== 'undefined') window.location.href = '/';
+    },
+    logout(fromUrl = '/') {
+      setToken('');
+      if (typeof window !== 'undefined') window.location.href = fromUrl || '/';
+    },
   };
 
   return {
@@ -154,8 +202,8 @@ export async function createSelfHostedClient(apiBase = '') {
         async InvokeLLM() {
           throw new Error('Pas de modele IA sur le serveur auto-heberge — repli pedagogique');
         },
-        async SendEmail() {
-          throw new Error("L'envoi d'e-mail n'est pas configure sur ce serveur");
+        async SendEmail(payload) {
+          return unwrap(await request('POST', `/api/apps/${APP}/integrations/send-email`, { body: payload }));
         },
       },
     },

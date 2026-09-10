@@ -1,12 +1,6 @@
-// Magasin du backend de developpement : le magasin en memoire partage avec le
-// mode demonstration du navigateur (src/lib/memoryStore.js), plus la
-// persistance sur disque pour que l'etat survive a un redemarrage.
-//
-// Ce qui n'est pas reproduit : le RLS. Base44 restreint les lectures non
-// service-role au createur de l'enregistrement ; ici toutes les lectures
-// voient tout. C'est volontaire — le tableau de bord parent lit des liens
-// crees par le jeune conducteur, et emuler le RLS a moitie donnerait des
-// comportements plus trompeurs qu'utiles.
+// Magasin persistant. L'isolation des trajets (RLS) est appliquee dans
+// server.mjs : chaque utilisateur ne voit que ses Trip / DrivingEvent.
+// ParentLink est lisible par le jeune et par le parent invite.
 
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';

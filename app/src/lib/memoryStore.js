@@ -110,14 +110,14 @@ export class MemoryStore {
     return this.collection(name).find((rec) => rec.id === id) || null;
   }
 
-  create(name, data) {
+  create(name, data, actor = this.actor) {
     const now = new Date().toISOString();
     const rec = {
       id: this.newId(),
       created_date: now,
       updated_date: now,
-      created_by: this.actor.email,
-      created_by_id: this.actor.id,
+      created_by: actor?.email,
+      created_by_id: actor?.id,
       ...data,
     };
     this.collection(name).push(rec);
@@ -125,8 +125,8 @@ export class MemoryStore {
     return rec;
   }
 
-  bulkCreate(name, rows) {
-    return (Array.isArray(rows) ? rows : [rows]).map((data) => this.create(name, data));
+  bulkCreate(name, rows, actor = this.actor) {
+    return (Array.isArray(rows) ? rows : [rows]).map((data) => this.create(name, data, actor));
   }
 
   update(name, id, data) {

@@ -14,6 +14,19 @@ services:
       DATA_DIR: /data
       FEELGOOD_SEED: "0"
       CORS_ORIGIN: "*"
+      PUBLIC_URL: "${PUBLIC_URL:-http://127.0.0.1:8787}"
+      APP_PUBLIC_URL: "${APP_PUBLIC_URL:-http://127.0.0.1:5173}"
+      JWT_SECRET: "${JWT_SECRET:-}"
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+      GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
+      FACEBOOK_APP_ID: "${FACEBOOK_APP_ID:-}"
+      FACEBOOK_APP_SECRET: "${FACEBOOK_APP_SECRET:-}"
+      APPLE_CLIENT_ID: "${APPLE_CLIENT_ID:-}"
+      APPLE_TEAM_ID: "${APPLE_TEAM_ID:-}"
+      APPLE_KEY_ID: "${APPLE_KEY_ID:-}"
+      APPLE_PRIVATE_KEY: "${APPLE_PRIVATE_KEY:-}"
+      RESEND_API_KEY: "${RESEND_API_KEY:-}"
+      MAIL_FROM: "${MAIL_FROM:-FeelGood <noreply@localhost>}"
     volumes:
       - feelgood-data:/data
 
