@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
 import { Map as MapIcon, Download, RefreshCw, CheckCircle2, AlertCircle, Loader2, HardDrive } from 'lucide-react';
-import { REGIONS, SIZE_LABEL } from '@/lib/regionCatalog';
+import { REGIONS, SIZE_LABEL, GRAND_EST_DEPT_CODES } from '@/lib/regionCatalog';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
@@ -23,6 +23,29 @@ export default function RegionDownloader() {
       return anyDownloading ? 5000 : false;
     },
   });
+
+  const { data: preloads = [] } = useQuery({
+    queryKey: ['departement-preload'],
+    queryFn: async () => {
+      try {
+        return (await base44.entities.DepartementPreload.list('-updated_date', 200)) || [];
+      } catch {
+        return [];
+      }
+    },
+    refetchInterval: 15000,
+  });
+
+  const geoStats = React.useMemo(() => {
+    const byCode = {};
+    for (const d of preloads) byCode[d.code] = d;
+    const rows = GRAND_EST_DEPT_CODES.map((code) => byCode[code]).filter(Boolean);
+    const complete = rows.filter((d) => d.status === 'complete' || d.status === 'done').length;
+    const downloading = rows.filter((d) => d.status === 'downloading').length;
+    const pending = rows.filter((d) => d.status === 'pending').length;
+    const cellsDone = rows.reduce((s, d) => s + (d.cells_done || 0), 0);
+    return { rows, complete, downloading, pending, cellsDone, total: GRAND_EST_DEPT_CODES.length };
+  }, [preloads]);
 
   const byCode = React.useMemo(() => {
     const map = {};
@@ -88,9 +111,57 @@ export default function RegionDownloader() {
           <MapIcon className="w-4 h-4 text-primary" />
         </div>
         <div>
-          <h3 className="text-sm font-semibold text-foreground">Cartes téléchargées</h3>
+          <h3 className="text-sm font-semibold text-foreground">Carte serveur Geofabrik</h3>
           <p className="text-xs text-muted-foreground leading-relaxed mt-0.5">
-            Pré-charge une région pour analyser tes trajets instantanément, sans dépendre du réseau. Comme BMW Motorrad — ta carte reste dans l'app.
+            C’est cette carte (limites, stops, giratoires) que le serveur utilise pour calculer tes KPI.
+            Elle se charge toute seule, tu n’as rien à télécharger ici.
+          </p>
+        </div>
+      </div>
+
+      <div className="p-3 rounded-xl border border-border/60 bg-secondary/20 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm font-medium text-foreground">Grand Est</p>
+          <span className={`inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full ${
+            geoStats.complete === geoStats.total
+              ? 'bg-primary/15 text-primary'
+              : geoStats.downloading || geoStats.complete
+                ? 'bg-primary/15 text-primary'
+                : 'bg-secondary text-muted-foreground'
+          }`}>
+            {geoStats.complete === geoStats.total
+              ? 'Prêt'
+              : geoStats.downloading
+                ? 'En cours'
+                : geoStats.pending
+                  ? 'En file'
+                  : 'Pas encore chargé'}
+          </span>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {geoStats.complete}/{geoStats.total} départements
+          {geoStats.cellsDone > 0 ? ` · ${geoStats.cellsDone} blocs routiers` : ''}
+        </p>
+        {geoStats.rows.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {geoStats.rows.map((d) => (
+              <span key={d.code} className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">
+                {d.code} {d.status === 'complete' || d.status === 'done' ? '✓' : d.status === 'downloading' ? '…' : '○'}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-start gap-3 pt-2">
+        <div className="w-9 h-9 rounded-xl bg-secondary flex items-center justify-center flex-shrink-0">
+          <HardDrive className="w-4 h-4 text-muted-foreground" />
+        </div>
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">Complément Overpass</h3>
+          <p className="text-xs text-muted-foreground leading-relaxed mt-0.5">
+            Optionnel. Un clic ne charge pas tout le Grand Est et n’est pas Geofabrik.
+            Utile seulement si une zone manque encore après un trajet.
           </p>
         </div>
       </div>
@@ -151,7 +222,7 @@ export default function RegionDownloader() {
       </div>
 
       <p className="text-xs text-muted-foreground/70 leading-relaxed">
-        Le téléchargement s'effectue par tronçons et reprend automatiquement en arrière-plan. La carte est partagée entre tous les utilisateurs de l'app.
+        Geofabrik alimente le moteur de scores sur le serveur. Le complément Overpass ci-dessus est un filet de sécurité, pas la source principale.
       </p>
     </Card>
   );

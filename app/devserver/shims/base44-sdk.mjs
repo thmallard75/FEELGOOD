@@ -36,13 +36,13 @@ function entityHandler(name, { service = false } = {}) {
 
   return {
     async list(sort, limit, skip, fields) {
-      return store.query(name, { q: scoped(), sort, limit, skip, fields: splitFields(fields) });
+      return Promise.resolve(store.query(name, { q: scoped(), sort, limit, skip, fields: splitFields(fields) }));
     },
     async filter(q, sort, limit, skip, fields) {
-      return store.query(name, { q: scoped(q), sort, limit, skip, fields: splitFields(fields) });
+      return Promise.resolve(store.query(name, { q: scoped(q), sort, limit, skip, fields: splitFields(fields) }));
     },
     async get(id) {
-      const rec = store.get(name, id);
+      const rec = await Promise.resolve(store.get(name, id));
       if (!visible(rec)) throw notFound(name, id);
       return rec;
     },
@@ -50,38 +50,43 @@ function entityHandler(name, { service = false } = {}) {
       forbidSharedWrite(name, service);
       const user = actor();
       if (!service && !user) throw Object.assign(new Error('Unauthorized'), { status: 401 });
-      return store.create(name, data, user || undefined);
+      return Promise.resolve(store.create(name, data, user || undefined));
     },
     async bulkCreate(rows) {
       forbidSharedWrite(name, service);
       const user = actor();
       if (!service && !user) throw Object.assign(new Error('Unauthorized'), { status: 401 });
-      return store.bulkCreate(name, rows, user || undefined);
+      return Promise.resolve(store.bulkCreate(name, rows, user || undefined));
     },
     async update(id, data) {
       forbidSharedWrite(name, service);
-      const rec = store.get(name, id);
+      const rec = await Promise.resolve(store.get(name, id));
       if (!writable(rec)) throw notFound(name, id);
-      return store.update(name, id, data);
+      return Promise.resolve(store.update(name, id, data));
     },
     async updateMany(query, data) {
       forbidSharedWrite(name, service);
-      return store.updateMany(name, scoped(query), data);
+      return Promise.resolve(store.updateMany(name, scoped(query), data));
     },
     async bulkUpdate(rows) {
       forbidSharedWrite(name, service);
-      const allowed = (rows || []).filter((row) => writable(store.get(name, row.id)));
-      return store.bulkUpdate(name, allowed);
+      const allowed = [];
+      for (const row of rows || []) {
+        const rec = await Promise.resolve(store.get(name, row.id));
+        if (writable(rec)) allowed.push(row);
+      }
+      return Promise.resolve(store.bulkUpdate(name, allowed));
     },
     async delete(id) {
       forbidSharedWrite(name, service);
-      const rec = store.get(name, id);
-      if (!writable(rec) || !store.remove(name, id)) throw notFound(name, id);
+      const rec = await Promise.resolve(store.get(name, id));
+      const removed = rec && writable(rec) ? await Promise.resolve(store.remove(name, id)) : false;
+      if (!removed) throw notFound(name, id);
       return { ok: true };
     },
     async deleteMany(query) {
       forbidSharedWrite(name, service);
-      return store.deleteMany(name, scoped(query));
+      return Promise.resolve(store.deleteMany(name, scoped(query)));
     },
     subscribe() {
       return () => {};

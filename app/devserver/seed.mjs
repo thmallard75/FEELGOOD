@@ -104,7 +104,7 @@ export async function seed({ force = false } = {}) {
   console.log(`[dev-api] compte seed ${DEV_USER.email} (mot de passe: ${process.env.FEELGOOD_USER_PASSWORD || 'feelgood-dev'})`);
 
   const tiles = readFixture('osm_tiles_dossenheim.json');
-  store.bulkCreate('OsmTileCache', tiles.map((t) => ({ ...t, cached_at: new Date().toISOString() })));
+  await Promise.resolve(store.bulkCreate('OsmTileCache', tiles.map((t) => ({ ...t, cached_at: new Date().toISOString() }))));
 
   store.create('DepartementPreload', {
     code: '67', name: 'Bas-Rhin', status: 'done',

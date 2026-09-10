@@ -30,8 +30,14 @@ DEFAULTS = {
 }
 
 KEY = os.environ['GEOSERVICE_KEY']
-BASE = os.environ.get('APP_BASE', 'https://feel-good-drive.base44.app')
-PBF = os.environ.get('PBF_PATH', '/tmp/france-latest.osm.pbf')
+BASE = os.environ.get('APP_BASE', 'https://feelgood-mytf.onrender.com').rstrip('/')
+FN = os.environ.get('FUNCTIONS_PATH', '/api/apps/feelgood/functions')
+PBF = os.environ.get('PBF_PATH', '/tmp/grand-est-latest.osm.pbf')
+PBF_URL = os.environ.get(
+    'PBF_URL',
+    'https://download.geofabrik.de/europe/france/grand-est-latest.osm.pbf',
+)
+PBF_MIN_BYTES = int(os.environ.get('PBF_MIN_BYTES', '50000000'))
 UA = 'feelgood-etl/1.0'
 BATCH = 200
 
@@ -76,7 +82,7 @@ def haversine_m(lat1, lon1, lat2, lon2):
 
 def fetch_pending():
     req = urllib.request.Request(
-        f"{BASE}/functions/getPendingDepartements",
+        f"{BASE}{FN}/getPendingDepartements",
         headers={'X-Service-Key': KEY, 'User-Agent': UA})
     with urllib.request.urlopen(req, timeout=60) as r:
         return json.load(r).get('pending', [])
@@ -117,7 +123,7 @@ def post_batch(dep_code, batch, is_final, cells_total, max_attempts=5):
         'is_final': bool(is_final),
         'cells_total': cells_total,
     }).encode()
-    url = f"{BASE}/functions/importGeofabrikTiles"
+    url = f"{BASE}{FN}/importGeofabrikTiles"
     last_err = None
     for attempt in range(1, max_attempts + 1):
         req = urllib.request.Request(
@@ -316,10 +322,9 @@ def main():
         return
     print(f"[etl] {len(deps)} departement(s) pending: {[d['code'] for d in deps]}", flush=True)
 
-    if not os.path.exists(PBF) or os.path.getsize(PBF) < 1_000_000_000:
-        print(f"[etl] PBF absent/incomplet ({PBF}) — telechargement...", flush=True)
-        urllib.request.urlretrieve(
-            'https://download.geofabrik.de/europe/france-latest.osm.pbf', PBF)
+    if not os.path.exists(PBF) or os.path.getsize(PBF) < PBF_MIN_BYTES:
+        print(f"[etl] PBF absent/incomplet ({PBF}) — telechargement {PBF_URL}...", flush=True)
+        urllib.request.urlretrieve(PBF_URL, PBF)
 
     total_bytes = os.path.getsize(PBF)
     print(f"[etl] PBF: {total_bytes:,} octets — parsing (index partiel) en cours...", flush=True)

@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { join } from 'node:path';
 
 import { MemoryStore } from '../src/lib/memoryStore.js';
+import { TILE_ENTITY, createPgTileStore } from './tileStore.mjs';
 
 const DATA_DIR = process.env.DATA_DIR || join(import.meta.dirname, '.data');
 const DATA_FILE = join(DATA_DIR, 'store.json');
@@ -37,6 +38,7 @@ class PersistentStore extends MemoryStore {
     this.pool = null;
     this.backend = 'memory';
     this.restored = false;
+    this.tiles = null;
     this._dirty = false;
     this._chain = Promise.resolve();
     this.onChange = () => this.scheduleSave();
@@ -61,7 +63,16 @@ class PersistentStore extends MemoryStore {
       `);
       this.backend = 'postgres';
       this.restored = await this.loadPostgres();
-      console.log(`[api] persistance Postgres (${this.restored ? 'etat recharge' : 'base vide'})`);
+      this.tiles = createPgTileStore(this.pool, { newId: this.newId });
+      await this.tiles.init();
+      const blobTiles = super.collection(TILE_ENTITY);
+      if (blobTiles.length) {
+        const n = await this.tiles.migrateFrom(blobTiles);
+        this.collections.set(TILE_ENTITY, []);
+        await this.flush();
+        console.log(`[api] ${n} tuiles OSM migrees vers table Postgres`);
+      }
+      console.log(`[api] persistance Postgres (${this.restored ? 'etat recharge' : 'base vide'}, tuiles=${this.tiles.count})`);
       return this.backend;
     }
     this.backend = 'file';
@@ -150,6 +161,72 @@ class PersistentStore extends MemoryStore {
 
   save() {
     this.scheduleSave();
+  }
+
+  counts() {
+    const c = super.counts();
+    if (this.tiles) c[TILE_ENTITY] = this.tiles.count;
+    return c;
+  }
+
+  toJSON() {
+    const data = super.toJSON();
+    if (this.tiles) {
+      const { [TILE_ENTITY]: _tiles, ...rest } = data;
+      return rest;
+    }
+    return data;
+  }
+
+  replaceAll(data) {
+    const copy = { ...(data || {}) };
+    if (this.tiles) delete copy[TILE_ENTITY];
+    super.replaceAll(copy);
+  }
+
+  query(name, opts) {
+    if (this.tiles && name === TILE_ENTITY) return this.tiles.query(opts);
+    return super.query(name, opts);
+  }
+
+  get(name, id) {
+    if (this.tiles && name === TILE_ENTITY) return this.tiles.get(id);
+    return super.get(name, id);
+  }
+
+  create(name, data, actor) {
+    if (this.tiles && name === TILE_ENTITY) return this.tiles.create(data, actor);
+    return super.create(name, data, actor);
+  }
+
+  bulkCreate(name, rows, actor) {
+    if (this.tiles && name === TILE_ENTITY) return this.tiles.bulkCreate(rows, actor);
+    return super.bulkCreate(name, rows, actor);
+  }
+
+  update(name, id, data) {
+    if (this.tiles && name === TILE_ENTITY) return this.tiles.update(id, data);
+    return super.update(name, id, data);
+  }
+
+  updateMany(name, query, data) {
+    if (this.tiles && name === TILE_ENTITY) return this.tiles.updateMany(query, data);
+    return super.updateMany(name, query, data);
+  }
+
+  bulkUpdate(name, rows) {
+    if (this.tiles && name === TILE_ENTITY) return this.tiles.bulkUpdate(rows);
+    return super.bulkUpdate(name, rows);
+  }
+
+  remove(name, id) {
+    if (this.tiles && name === TILE_ENTITY) return this.tiles.remove(id);
+    return super.remove(name, id);
+  }
+
+  deleteMany(name, query) {
+    if (this.tiles && name === TILE_ENTITY) return this.tiles.deleteMany(query);
+    return super.deleteMany(name, query);
   }
 }
 

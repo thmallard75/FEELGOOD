@@ -70,3 +70,25 @@ npm run smoke               # terminal 2 : compte + GPS → KPI + isolation
 ## PWA de démo (sans serveur)
 
 `https://thmallard75.github.io/FEELGOOD/` — pas le serveur Render, pas de vrais comptes : trajets uniquement dans le navigateur.
+
+## 4. Cartes Geofabrik (qualité des KPI)
+
+Le bouton Profil → Télécharger Grand Est **n’est pas** Geofabrik (c’est Overpass, lent et incomplet).
+
+Pour des KPI au plus juste (limites de vitesse, stops, giratoires), le serveur doit recevoir l’extrait **Geofabrik Grand Est**. Ça se fait une fois, puis chaque nuit.
+
+**Ne touche pas à Blueprint Sync** (ça pourrait recréer une seconde base). Ajoute les variables à la main :
+
+1. [Render](https://dashboard.render.com) → service **feelgood** → **Environment**.
+2. Ajoute `FEELGOOD_SERVICE_KEY` → **Generate**.
+3. Ajoute `GEOFABRIK_SEED_GRAND_EST` = `1`.
+4. **Save** (le site redémarre).
+5. Copie la valeur de `FEELGOOD_SERVICE_KEY`.
+6. GitHub → dépôt **FEELGOOD** → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**.
+   - Nom : `GEOSERVICE_KEY`
+   - Valeur : la clé copiée à l’étape 5.
+7. GitHub → **Actions** → **Geofabrik Preload** → **Run workflow**.
+
+Quand c’est fini, Profil sur https://feelgood-mytf.onrender.com/ affiche **Carte serveur Geofabrik — Grand Est**. Les trajets suivants (et « réanalyser ») utilisent ces cartes.
+
+L’iPhone n’analyse plus rien : il envoie le GPS, le serveur croise Geofabrik, et renvoie les scores.

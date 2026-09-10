@@ -17,45 +17,55 @@ export default async function(req) {
     const base44 = createClientFromRequest(req);
     const body = await req.json();
     const { departement_code, batch, is_final, cells_total } = body;
-    if (!departement_code || !Array.isArray(batch) || batch.length === 0) {
+    if (!departement_code || !Array.isArray(batch)) {
       return Response.json({ error: 'Missing departement_code or batch' }, { status: 400 });
     }
     if (batch.length > BATCH_MAX) {
       return Response.json({ error: `Batch too large (max ${BATCH_MAX})` }, { status: 413 });
     }
+    if (batch.length === 0 && !is_final) {
+      return Response.json({ error: 'Missing departement_code or batch' }, { status: 400 });
+    }
 
-    // Persiste les cellules (skip doublons si une cellule existe deja)
+    const keys = [...new Set(batch.map((c) => c.cell_key).filter(Boolean))];
+    const existing = keys.length
+      ? (await base44.asServiceRole.entities.OsmTileCache.filter({ cell_key: { $in: keys } }) || [])
+      : [];
+    const haveGeo = new Set(existing.filter((r) => r.source === 'geofabrik').map((r) => r.cell_key));
+    const fresh = batch.filter((c) => c.cell_key && !haveGeo.has(c.cell_key));
+
+    // Persiste les cellules (skip doublons Geofabrik)
     let created = 0;
-    try {
-      // Clean records (stripped of tout champ non-schema)
-      const clean = batch.map((c) => ({
-        cell_key: c.cell_key,
-        min_lat: c.min_lat,
-        min_lng: c.min_lng,
-        max_lat: c.max_lat,
-        max_lng: c.max_lng,
-        road_data: c.road_data || { roundabouts: [], speedLimits: [], stops: [] },
-        element_count: c.element_count || 0,
-        fetched_at: new Date().toISOString(),
-        source: 'geofabrik',
-      }));
-      await base44.asServiceRole.entities.OsmTileCache.bulkCreate(clean);
-      created = clean.length;
-    } catch (e) {
-      // bulkCreate peut echouer si au moins une cellule existe deja → repli unitaire
-      console.warn('[importGeofabrikTiles] bulk fail, fallback unitaire:', e.message);
-      for (const c of batch) {
-        try {
-          await base44.asServiceRole.entities.OsmTileCache.create({
-            cell_key: c.cell_key,
-            min_lat: c.min_lat, min_lng: c.min_lng, max_lat: c.max_lat, max_lng: c.max_lng,
-            road_data: c.road_data || { roundabouts: [], speedLimits: [], stops: [] },
-            element_count: c.element_count || 0,
-            fetched_at: new Date().toISOString(),
-            source: 'geofabrik',
-          });
-          created++;
-        } catch (_) { /* doublon ignore */ }
+    if (fresh.length) {
+      try {
+        const clean = fresh.map((c) => ({
+          cell_key: c.cell_key,
+          min_lat: c.min_lat,
+          min_lng: c.min_lng,
+          max_lat: c.max_lat,
+          max_lng: c.max_lng,
+          road_data: c.road_data || { roundabouts: [], speedLimits: [], stops: [] },
+          element_count: c.element_count || 0,
+          fetched_at: new Date().toISOString(),
+          source: 'geofabrik',
+        }));
+        await base44.asServiceRole.entities.OsmTileCache.bulkCreate(clean);
+        created = clean.length;
+      } catch (e) {
+        console.warn('[importGeofabrikTiles] bulk fail, fallback unitaire:', e.message);
+        for (const c of fresh) {
+          try {
+            await base44.asServiceRole.entities.OsmTileCache.create({
+              cell_key: c.cell_key,
+              min_lat: c.min_lat, min_lng: c.min_lng, max_lat: c.max_lat, max_lng: c.max_lng,
+              road_data: c.road_data || { roundabouts: [], speedLimits: [], stops: [] },
+              element_count: c.element_count || 0,
+              fetched_at: new Date().toISOString(),
+              source: 'geofabrik',
+            });
+            created++;
+          } catch (_) { /* doublon ignore */ }
+        }
       }
     }
 
@@ -72,13 +82,14 @@ export default async function(req) {
         error: null,
       };
       if (is_final && cells_total) upd.cells_total = cells_total;
+      if (is_final) upd.status = 'complete';
       await base44.asServiceRole.entities.DepartementPreload.update(d.id, upd);
       depStatus = upd.status;
       cellsDone = done;
     }
 
-    console.log(`[importGeofabrikTiles] dep=${departement_code} created=${created} is_final=${!!is_final} status=${depStatus}`);
-    return Response.json({ ok: true, created, cells_done: cellsDone, status: depStatus });
+    console.log(`[importGeofabrikTiles] dep=${departement_code} created=${created} skipped=${batch.length - created} is_final=${!!is_final} status=${depStatus}`);
+    return Response.json({ ok: true, created, skipped: Math.max(0, batch.length - created), cells_done: cellsDone, status: depStatus });
   } catch (error) {
     console.error('[importGeofabrikTiles] error:', error.message);
     return Response.json({ error: error.message }, { status: 500 });

@@ -101,6 +101,8 @@ export const DEPARTEMENTS = [
   { code: "95", name: "Val-d'Oise", bbox: { minLat: 48.9, minLng: 1.7, maxLat: 49.2, maxLng: 2.7 } },
 ];
 
+export const GRAND_EST_CODES = ["08", "10", "51", "52", "54", "55", "57", "67", "68", "88"];
+
 export function getDepartementForPoint(lat, lng) {
   for (const d of DEPARTEMENTS) {
     const b = d.bbox;

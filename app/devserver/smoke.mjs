@@ -10,6 +10,7 @@ import { MemoryStore } from '../src/lib/memoryStore.js';
 
 const API = process.env.API_URL || 'http://127.0.0.1:8787';
 const APP = 'feelgood';
+const SERVICE_KEY = process.env.FEELGOOD_SERVICE_KEY || process.env.GEOFABRIK_SERVICE_KEY || 'dev-geofabrik-key';
 const FIXTURES = join(import.meta.dirname, 'fixtures');
 
 function fail(msg) {
@@ -19,10 +20,24 @@ function fail(msg) {
 
 let token = '';
 
-async function req(method, path, body) {
-  const headers = { Accept: 'application/json' };
+async function req(method, path, body, extraHeaders = {}) {
+  const headers = { Accept: 'application/json', ...extraHeaders };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(`${API}${path}`, {
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  const text = await res.text();
+  let data;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  return { status: res.status, ok: res.ok, data };
+}
+
+async function svc(method, path, body) {
+  const headers = { Accept: 'application/json', 'x-service-key': SERVICE_KEY };
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
   const res = await fetch(`${API}${path}`, {
     method,
     headers,
@@ -81,6 +96,32 @@ if (bulk.status !== 403) fail(`OsmTileCache/bulk devrait etre 403, pas ${bulk.st
 const wipeTiles = await req('DELETE', `/api/apps/${APP}/entities/OsmTileCache`);
 if (wipeTiles.status !== 403) fail(`OsmTileCache DELETE devrait etre 403, pas ${wipeTiles.status}`);
 console.log('[smoke] cache OSM en lecture seule via HTTP');
+
+const noKey = await fetch(`${API}/functions/getPendingDepartements`, { headers: { Accept: 'application/json' } });
+if (noKey.status !== 403) fail(`getPending sans cle devrait etre 403, pas ${noKey.status}`);
+const pending = await svc('GET', '/functions/getPendingDepartements');
+if (!pending.ok || !Array.isArray(pending.data?.pending)) {
+  fail(`getPendingDepartements -> ${pending.status} ${JSON.stringify(pending.data)}`);
+}
+const imported = await svc('POST', `/api/apps/${APP}/functions/importGeofabrikTiles`, {
+  departement_code: '67',
+  batch: tiles,
+  is_final: true,
+  cells_total: tiles.length,
+});
+if (!imported.ok || !(imported.data?.created >= 1)) {
+  fail(`importGeofabrikTiles -> ${imported.status} ${JSON.stringify(imported.data)}`);
+}
+const again = await svc('POST', `/functions/importGeofabrikTiles`, {
+  departement_code: '67',
+  batch: tiles,
+  is_final: true,
+  cells_total: tiles.length,
+});
+if (!again.ok || again.data?.created !== 0) {
+  fail(`doublon Geofabrik devrait etre skipped: ${again.status} ${JSON.stringify(again.data)}`);
+}
+console.log(`[smoke] Geofabrik ${imported.data.created} tuiles, skip=${again.data.skipped}`);
 
 const rawTrack = JSON.parse(readFileSync(join(FIXTURES, 'dossenheim_track.json'), 'utf8'));
 const gps_track = timestampTrack(rawTrack, new Date().toISOString());
@@ -278,4 +319,4 @@ const okApp = sanitizeFromUrl('https://feelgood.example/app', '/', {
 if (!okApp.startsWith('https://feelgood.example/')) fail(`origine app refusee: ${okApp}`);
 console.log('[smoke] redirection OAuth bornee');
 
-console.log('[smoke] OK — comptes + GPS sur le serveur, KPI renvoyes, pas Base44');
+console.log('[smoke] OK — comptes + GPS sur le serveur, KPI via Geofabrik, pas Base44');

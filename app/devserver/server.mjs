@@ -3,6 +3,7 @@
 // L'iPhone n'envoie que le GPS ; analyzeTrip calcule les KPI ici.
 // Comptes : e-mail, Google, Facebook, Apple — pas Base44.
 
+import { timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
 import { register } from 'node:module';
 import { pathToFileURL } from 'node:url';
@@ -13,6 +14,7 @@ register(pathToFileURL(join(import.meta.dirname, 'loader.mjs')));
 const { store } = await import('./store.mjs');
 const { invokeFunction, listFunctions } = await import('./functions.mjs');
 const { seed } = await import('./seed.mjs');
+const { seedGrandEstDepartements } = await import('./geofabrik.mjs');
 const { requestContext } = await import('./context.mjs');
 const auth = await import('./auth.mjs');
 const { serveWeb, webEnabled } = await import('./web.mjs');
@@ -54,11 +56,28 @@ const CRON_FUNCTIONS = new Set([
   'detectDepartementsToPreload',
 ]);
 
+function keysMatch(provided, expected) {
+  if (!provided || !expected) return false;
+  const a = Buffer.from(String(provided), 'utf8');
+  const b = Buffer.from(String(expected), 'utf8');
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+function expectedServiceKeys() {
+  const keys = [process.env.FEELGOOD_SERVICE_KEY, process.env.GEOFABRIK_SERVICE_KEY].filter(Boolean);
+  if (!keys.length && process.env.NODE_ENV !== 'production') keys.push('dev-geofabrik-key');
+  return keys;
+}
+
 function hasServiceKey(req) {
   const provided = req.headers['x-service-key'];
-  const expected = process.env.FEELGOOD_SERVICE_KEY;
-  if (!provided || !expected) return false;
-  return provided === expected;
+  return expectedServiceKeys().some((expected) => keysMatch(provided, expected));
+}
+
+function serviceHeaders(req) {
+  const key = req.headers['x-service-key'];
+  return key ? { 'x-service-key': key } : {};
 }
 
 function corsHeaders(req) {
@@ -211,6 +230,52 @@ async function authRoutes(req, res, url, parts) {
   return send(res, 404, { error: 'Route auth inconnue' });
 }
 
+async function functionsRoute(req, res, name) {
+  if (!name || !/^[\w-]+$/.test(name)) {
+    return send(res, 404, { error: 'Fonction inconnue' });
+  }
+  if (req.method !== 'GET' && req.method !== 'POST') {
+    return send(res, 405, { error: `Methode ${req.method} non geree` });
+  }
+  const privileged = hasServiceKey(req);
+  let payload = {};
+  if (req.method === 'POST') payload = await readJson(req) || {};
+
+  if (CRON_FUNCTIONS.has(name)) {
+    if (!privileged) return send(res, 403, { error: 'fonction reservee au serveur' });
+    const started = Date.now();
+    const { status, data } = await invokeFunction(name, payload, serviceHeaders(req));
+    console.log(`[api] fonction ${name} service -> ${status} (${Date.now() - started} ms)`);
+    return send(res, status, data);
+  }
+
+  const user = auth.userFromRequest(req);
+  if (!user) return send(res, 401, { error: 'auth_required', reason: 'auth_required' });
+
+  return requestContext.run({ user }, async () => {
+    if (!privileged && !USER_FUNCTIONS.has(name)) {
+      return send(res, 404, { error: `Fonction inconnue: ${name}` });
+    }
+    if (!privileged && name === 'sendWeeklySummary') payload = {};
+    if (name === 'analyzeTrip' && payload?.tripId) {
+      const trip = store.get('Trip', payload.tripId);
+      if (!canRead('Trip', trip, user)) {
+        return send(res, 404, { error: 'Trajet introuvable' });
+      }
+    }
+    if (name === 'computeCoaching' && payload?.tripId) {
+      const trip = store.get('Trip', payload.tripId);
+      if (!canRead('Trip', trip, user)) {
+        return send(res, 404, { error: 'Trajet introuvable' });
+      }
+    }
+    const started = Date.now();
+    const { status, data } = await invokeFunction(name, payload, serviceHeaders(req));
+    console.log(`[api] fonction ${name} user=${user.email} -> ${status} (${Date.now() - started} ms)`);
+    return send(res, status, data);
+  });
+}
+
 async function route(req, res, url) {
   if (url.pathname === '/health' || url.pathname === '/api/health') {
     return send(res, 200, { ok: true, service: 'feelgood-api' });
@@ -219,6 +284,9 @@ async function route(req, res, url) {
     return send(res, 200, { ok: true, service: 'feelgood-api', health: '/health' });
   }
   const parts = url.pathname.replace(/^\/+|\/+$/g, '').split('/');
+  if (parts[0] === 'functions' && parts[1]) {
+    return functionsRoute(req, res, parts[1]);
+  }
   if (parts[0] !== 'api' || parts[1] !== 'apps') {
     if (parts[0] === '__dev') {
       if (process.env.FEELGOOD_DEV_ROUTES !== '1') {
@@ -251,6 +319,10 @@ async function route(req, res, url) {
     }
   }
 
+  if (parts[3] === 'functions') {
+    return functionsRoute(req, res, parts[4]);
+  }
+
   const user = auth.userFromRequest(req);
   if (!user) return send(res, 401, { error: 'auth_required', reason: 'auth_required' });
 
@@ -259,42 +331,13 @@ async function route(req, res, url) {
     if (section === 'entities') {
       return entitiesRoute(req, res, url, parts.slice(4), user);
     }
-    if (section === 'functions') {
-      const name = parts[4];
-      let payload = await readJson(req) || {};
-      const privileged = hasServiceKey(req);
-      if (CRON_FUNCTIONS.has(name) && !privileged) {
-        return send(res, 403, { error: 'fonction reservee au serveur' });
-      }
-      if (!privileged && !USER_FUNCTIONS.has(name) && !CRON_FUNCTIONS.has(name)) {
-        return send(res, 404, { error: `Fonction inconnue: ${name}` });
-      }
-      if (!privileged && name === 'sendWeeklySummary') {
-        payload = {};
-      }
-      if (name === 'analyzeTrip' && payload?.tripId) {
-        const trip = store.get('Trip', payload.tripId);
-        if (!canRead('Trip', trip, user)) {
-          return send(res, 404, { error: 'Trajet introuvable' });
-        }
-      }
-      if (name === 'computeCoaching' && payload?.tripId) {
-        const trip = store.get('Trip', payload.tripId);
-        if (!canRead('Trip', trip, user)) {
-          return send(res, 404, { error: 'Trajet introuvable' });
-        }
-      }
-      const started = Date.now();
-      const { status, data } = await invokeFunction(name, payload, {});
-      console.log(`[api] fonction ${name} user=${user.email} -> ${status} (${Date.now() - started} ms)`);
-      return send(res, status, data);
-    }
     return send(res, 404, { error: `Route non geree: ${url.pathname}` });
   });
 }
 
 async function entitiesRoute(req, res, url, rest, user) {
   const [entity, tail] = rest;
+  const recOf = (value) => Promise.resolve(value);
 
   if (entity === 'User' && tail === 'me') {
     if (req.method === 'PUT') {
@@ -322,14 +365,18 @@ async function entitiesRoute(req, res, url, rest, user) {
   switch (req.method) {
     case 'GET': {
       if (tail) {
-        const rec = store.get(entity, tail);
+        const rec = await recOf(store.get(entity, tail));
         return canRead(entity, rec, user)
           ? send(res, 200, presentRecord(entity, rec, user))
           : send(res, 404, { error: `${entity} ${tail} introuvable` });
       }
       const opts = queryOptions(url);
       opts.q = scopedQuery(entity, user, opts.q);
-      return send(res, 200, store.query(entity, opts).map((rec) => presentRecord(entity, rec, user)));
+      if (entity === 'OsmTileCache' && !opts.q?.cell_key) {
+        opts.limit = Math.min(Number(opts.limit) || 200, 200);
+      }
+      const rows = await recOf(store.query(entity, opts));
+      return send(res, 200, rows.map((rec) => presentRecord(entity, rec, user)));
     }
     case 'POST': {
       const body = stripOwnership(await readJson(req)) || {};
@@ -377,33 +424,36 @@ async function entitiesRoute(req, res, url, rest, user) {
       if (tail === 'update-many') {
         const q = scopedQuery(entity, user, body?.query);
         if (entity === 'ParentLink') {
-          const rows = store.query(entity, { q });
+          const rows = await recOf(store.query(entity, { q }));
           if (rows.some((rec) => !parentLinkPatchAllowed(rec, user, body?.data))) {
             return send(res, 403, { error: 'Modification parent interdite' });
           }
           const { invite_code: _code, ...data } = body?.data || {};
-          return send(res, 200, store.updateMany(entity, q, data));
+          return send(res, 200, await recOf(store.updateMany(entity, q, data)));
         }
-        return send(res, 200, store.updateMany(entity, q, body?.data));
+        return send(res, 200, await recOf(store.updateMany(entity, q, body?.data)));
       }
       return send(res, 404, { error: 'PATCH non gere' });
     }
     case 'DELETE': {
       if (tail) {
-        const rec = store.get(entity, tail);
-        if (!canDelete(entity, rec, user) || !store.remove(entity, tail)) {
+        const rec = await recOf(store.get(entity, tail));
+        const removed = rec && canDelete(entity, rec, user)
+          ? await recOf(store.remove(entity, tail))
+          : false;
+        if (!removed) {
           return send(res, 404, { error: `${entity} ${tail} introuvable` });
         }
         return send(res, 200, { ok: true });
       }
       const q = scopedQuery(entity, user, await readJson(req));
       if (entity === 'ParentLink') {
-        const rows = store.query(entity, { q });
+        const rows = await recOf(store.query(entity, { q }));
         if (rows.some((rec) => !canDelete(entity, rec, user))) {
           return send(res, 403, { error: 'Suppression parent interdite' });
         }
       }
-      return send(res, 200, store.deleteMany(entity, q));
+      return send(res, 200, await recOf(store.deleteMany(entity, q)));
     }
     default:
       return send(res, 405, { error: `Methode ${req.method} non geree` });
@@ -432,6 +482,7 @@ const server = createServer((req, res) => {
 
 await store.ready();
 await seed();
+const geoQueued = seedGrandEstDepartements();
 
 async function shutdown(signal) {
   console.log(`[api] ${signal} — sauvegarde`);
@@ -451,4 +502,5 @@ server.listen(PORT, HOST, () => {
   console.log(`[api] fonctions: ${listFunctions().join(', ')}`);
   console.log(`[api] web: ${webEnabled() ? 'build Vite (connexion reelle)' : 'API seule'}`);
   console.log(`[api] persistance: ${store.backend}`);
+  if (geoQueued.length) console.log(`[api] Geofabrik pending: ${geoQueued.join(', ')}`);
 });
