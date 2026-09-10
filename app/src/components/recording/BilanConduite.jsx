@@ -25,7 +25,7 @@ export default function BilanConduite({ tripResult, counts, onDetail, onNewTrip 
   });
   const t = trip?.[0];
 
-  const analyzing = !t || t.status === 'pending_analysis' || t.status === 'syncing';
+  const analyzing = !t || t.status === 'pending_analysis' || t.status === 'syncing' || t.status === 'pending_osm';
   const braking = t?.harsh_braking_count || 0;
   const accel = t?.harsh_acceleration_count || 0;
   const distraction = t?.distraction_summary?.count || 0;

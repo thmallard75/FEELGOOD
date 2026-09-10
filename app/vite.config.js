@@ -22,6 +22,22 @@ export default defineConfig({
   // navigateurs supportes par le build de production.
   ...(isDemo ? { build: { target: 'es2022' } } : {}),
   plugins: [
+    // Les fonctions backend importent des specificateurs Deno. En mode
+    // demonstration, on les execute dans le navigateur : ces aliases
+    // redirigent le SDK et le runtime vers les substituts locaux.
+    {
+      name: 'feelgood-deno-shims',
+      enforce: 'pre',
+      resolveId(id) {
+        if (/^npm:@base44\/sdk/.test(id)) {
+          return path.resolve(rootDir, 'src/api/browserSdk.js');
+        }
+        if (id === 'base44:runtime') {
+          return path.resolve(rootDir, 'src/api/browserRuntime.js');
+        }
+        return null;
+      },
+    },
     // Le plugin Base44 telemetrie vers /api : inutile (et cassant) pour le
     // build de test autonome, PWA et app iOS.
     ...(!isDemo ? [base44({

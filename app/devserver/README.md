@@ -85,13 +85,13 @@ npm run build:demo      # build Vite + instantane + repli 404.html
 l'instantane. Les chiffres publies sont donc ceux du moteur, pas des valeurs
 ecrites a la main.
 
-Ce que la demonstration ne peut pas faire, et signale explicitement : analyser
-un nouveau trajet, envoyer un e-mail, appeler un modele. Les ecritures
-(activer un lien parent, par exemple) fonctionnent en memoire et disparaissent
-au rechargement.
+Ce que la demonstration ne peut pas faire, et signale explicitement : envoyer
+un e-mail, appeler un modele. **Analyser un nouveau trajet fonctionne** : le
+vrai `analyzeTrip` s'execute dans le navigateur (Overpass pour les tuiles
+manquantes). Les ecritures sont conservees dans `localStorage`.
 
 Le workflow `.github/workflows/pages.yml` publie ce build sur GitHub Pages a
-chaque poussee sur `main`. `DEMO_BASE` fixe le sous-chemin de service
+chaque poussee. `DEMO_BASE` fixe le sous-chemin de service
 (`/FEELGOOD/` pour un site de projet).
 
 ## Commandes

@@ -59,7 +59,7 @@ Le projet iOS est dans `app/ios/` (Info.plist, permissions GPS, fond sombre).
 | Compte | aucun | aucun |
 | Trajets déjà analysés | oui (instantané) | oui (moteur réel) |
 | Simulation GPS | oui | oui |
-| Nouveau trajet GPS + analyse OSM | trace enregistrée, analyse limitée | analyse complète |
+| Nouveau trajet GPS + analyse OSM | oui (moteur réel, dans le navigateur) | oui (moteur réel) |
 
 ## Commandes
 
