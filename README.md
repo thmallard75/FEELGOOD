@@ -34,7 +34,20 @@ https://api.mondomaine.fr/api/apps/auth/callback/apple
 
 Variables : voir `app/.env.example` (`GOOGLE_CLIENT_ID`, `FACEBOOK_APP_ID`, `APPLE_*`, `PUBLIC_URL`, `JWT_SECRET`).
 
-## 1. Héberger le serveur
+## 1. Test en ligne gratuit (Render)
+
+Le fichier `render.yaml` décrit le service. Dans [Render](https://dashboard.render.com) :
+
+1. **New → Blueprint**
+2. Connecte le dépôt GitHub `thmallard75/FEELGOOD`
+3. Branche **`cursor/fix-trip-after-drive-592e`** (pas `main`)
+4. Apply
+
+Tu obtiens `https://feelgood-xxxx.onrender.com` : **écran de connexion réel** (e-mail + mot de passe). Les trajets sont sur ce serveur.
+
+Limites du plan Free : le service s’endort après 15 min sans visite (~1 min au réveil) ; les données peuvent disparaître au redémarrage (pas de disque persistant).
+
+## 1b. Héberger chez toi (VPS)
 
 ```bash
 docker compose up -d --build
@@ -67,4 +80,4 @@ npm run smoke               # terminal 2 : compte + GPS → KPI + isolation
 
 ## PWA de démo (sans serveur)
 
-`https://thmallard75.github.io/FEELGOOD/` — pas le build App Store, pas de vrais comptes.
+`https://thmallard75.github.io/FEELGOOD/` — pas le serveur Render, pas de vrais comptes : trajets uniquement dans le navigateur.

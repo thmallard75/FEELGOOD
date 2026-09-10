@@ -42,7 +42,7 @@ export default function Login({ onAuthenticated }) {
       icon={Shield}
       title="FeelGood Conduite"
       subtitle="Connecte-toi pour retrouver tes trajets et les partager avec un parent."
-      footer="Tes données restent sur ton serveur FeelGood — pas sur Base44."
+      footer="Tes trajets et ton compte vivent sur ce serveur — pas dans le navigateur, pas sur Base44."
     >
       <div className="space-y-3 mb-6">
         {providers.google && (

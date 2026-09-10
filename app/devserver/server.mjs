@@ -15,9 +15,12 @@ const { invokeFunction, listFunctions } = await import('./functions.mjs');
 const { seed } = await import('./seed.mjs');
 const { requestContext } = await import('./context.mjs');
 const auth = await import('./auth.mjs');
+const { serveWeb, webEnabled } = await import('./web.mjs');
 
 const PORT = Number(process.env.PORT || process.env.DEV_API_PORT || 8787);
-const HOST = process.env.HOST || process.env.DEV_API_HOST || '127.0.0.1';
+const HOST = process.env.HOST
+  || process.env.DEV_API_HOST
+  || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1');
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
 const SHARED_ENTITIES = new Set(['OsmTileCache', 'DepartementPreload', 'RegionDownload']);
 
@@ -197,7 +200,7 @@ async function route(req, res, url) {
   if (url.pathname === '/health' || url.pathname === '/api/health') {
     return send(res, 200, { ok: true, service: 'feelgood-api' });
   }
-  if (url.pathname === '/' && req.method === 'GET') {
+  if (url.pathname === '/' && req.method === 'GET' && !webEnabled()) {
     return send(res, 200, { ok: true, service: 'feelgood-api', health: '/health' });
   }
   const parts = url.pathname.replace(/^\/+|\/+$/g, '').split('/');
@@ -208,6 +211,7 @@ async function route(req, res, url) {
       }
       return devRoute(req, res, parts.slice(1));
     }
+    if (serveWeb(req, res, url, corsHeaders(req))) return;
     return send(res, 404, { error: `Route non geree: ${url.pathname}` });
   }
 
@@ -359,4 +363,5 @@ server.listen(PORT, HOST, () => {
   console.log(`[api] auth: ${Object.entries(providers).filter(([, v]) => v).map(([k]) => k).join(', ')}`);
   console.log(`[api] entites: ${Object.entries(counts).map(([k, v]) => `${k}=${v}`).join(' ') || '(vide)'}`);
   console.log(`[api] fonctions: ${listFunctions().join(', ')}`);
+  console.log(`[api] web: ${webEnabled() ? 'build Vite (connexion reelle)' : 'API seule'}`);
 });

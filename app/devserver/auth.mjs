@@ -166,8 +166,10 @@ export function configuredProviders() {
 }
 
 export function publicApiUrl(req) {
-  if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL.replace(/\/$/, '');
-  const proto = req.headers['x-forwarded-proto'] || (req.headers.host?.includes('localhost') ? 'http' : 'https');
+  const explicit = process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL;
+  if (explicit) return explicit.replace(/\/$/, '');
+  const proto = (req.headers['x-forwarded-proto'] || '').split(',')[0].trim()
+    || (req.headers.host?.includes('localhost') ? 'http' : 'https');
   return `${proto}://${req.headers.host}`;
 }
 

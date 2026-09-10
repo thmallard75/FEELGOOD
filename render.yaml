@@ -1,0 +1,26 @@
+# Test en ligne gratuit : un Web Service Render (plan Free).
+# Dashboard Render → New → Blueprint → repo thmallard75/FEELGOOD
+# Branche : cursor/fix-trip-after-drive-592e
+#
+# Un seul HTTPS : inscription e-mail + API + trajets.
+# Limite Free : endormissement après 15 min, disque non persistant.
+
+services:
+  - type: web
+    name: feelgood
+    runtime: docker
+    plan: free
+    region: frankfurt
+    branch: cursor/fix-trip-after-drive-592e
+    dockerfilePath: ./app/Dockerfile
+    dockerContext: ./app
+    healthCheckPath: /health
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: FEELGOOD_SEED
+        value: "0"
+      - key: CORS_ORIGIN
+        value: "*"
+      - key: JWT_SECRET
+        generateValue: true

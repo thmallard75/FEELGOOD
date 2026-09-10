@@ -34,6 +34,19 @@ export async function createSelfHostedClient(apiBase = '') {
     else window.localStorage.removeItem(TOKEN_KEY);
   }
 
+  if (typeof window !== 'undefined') {
+    try {
+      const here = new URL(window.location.href);
+      const fromUrl = here.searchParams.get('access_token');
+      if (fromUrl) {
+        setToken(fromUrl);
+        here.searchParams.delete('access_token');
+        const qs = here.searchParams.toString();
+        window.history.replaceState({}, '', `${here.pathname}${qs ? `?${qs}` : ''}${here.hash}`);
+      }
+    } catch { /* ignore */ }
+  }
+
   async function request(method, path, { query, body, signal } = {}) {
     const url = new URL(path.startsWith('/') ? path : `/${path}`, origin.endsWith('/') ? origin : `${origin}/`);
     if (query) {

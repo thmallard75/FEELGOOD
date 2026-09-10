@@ -6,3 +6,7 @@ devserver/.data
 *.log
 .env
 .env.local
+.git
+coverage
+demo
+*.md
