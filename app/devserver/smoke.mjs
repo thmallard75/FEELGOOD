@@ -97,6 +97,14 @@ const wipeTiles = await req('DELETE', `/api/apps/${APP}/entities/OsmTileCache`);
 if (wipeTiles.status !== 403) fail(`OsmTileCache DELETE devrait etre 403, pas ${wipeTiles.status}`);
 console.log('[smoke] cache OSM en lecture seule via HTTP');
 
+const dumpQ = encodeURIComponent(JSON.stringify({ source: 'geofabrik' }));
+const dump = await req('GET', `/api/apps/${APP}/entities/OsmTileCache?q=${dumpQ}`);
+if (dump.status !== 400) fail(`liste OsmTileCache source= devrait etre 400, pas ${dump.status}`);
+const gtQ = encodeURIComponent(JSON.stringify({ cell_key: { $gt: '' } }));
+const gtDump = await req('GET', `/api/apps/${APP}/entities/OsmTileCache?q=${gtQ}`);
+if (gtDump.status !== 400) fail(`liste OsmTileCache $gt devrait etre 400, pas ${gtDump.status}`);
+console.log('[smoke] lecture OsmTileCache bornee');
+
 const noKey = await fetch(`${API}/functions/getPendingDepartements`, { headers: { Accept: 'application/json' } });
 if (noKey.status !== 403) fail(`getPending sans cle devrait etre 403, pas ${noKey.status}`);
 const pending = await svc('GET', '/functions/getPendingDepartements');

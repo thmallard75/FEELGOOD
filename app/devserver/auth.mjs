@@ -465,7 +465,7 @@ export async function sendAppEmail({ to, subject, body }) {
     }
     return { ok: true, provider: 'resend' };
   }
-  console.log(`[api] e-mail (non envoye, pas de RESEND_API_KEY) -> ${normalizeEmail(to)}: ${subject}\n${body}`);
+  console.log(`[api] e-mail (non envoye, pas de RESEND_API_KEY) sujet=${String(subject || '').slice(0, 80)}`);
   return { ok: true, simulated: true };
 }
 

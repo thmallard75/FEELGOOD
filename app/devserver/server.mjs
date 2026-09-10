@@ -80,6 +80,19 @@ function serviceHeaders(req) {
   return key ? { 'x-service-key': key } : {};
 }
 
+function osmTileListAllowed(q) {
+  if (!q) return true;
+  const keys = Object.keys(q);
+  if (keys.length !== 1 || keys[0] !== 'cell_key') return false;
+  const cell = q.cell_key;
+  if (typeof cell === 'string' && cell.length > 0 && cell.length < 64) return true;
+  if (cell && Array.isArray(cell.$in)) {
+    if (cell.$in.length === 0 || cell.$in.length > 200) return false;
+    return cell.$in.every((k) => typeof k === 'string' && k.length > 0 && k.length < 64);
+  }
+  return false;
+}
+
 function corsHeaders(req) {
   const origin = CORS_ORIGIN === '*' ? (req?.headers?.origin || '*') : CORS_ORIGIN;
   return {
@@ -372,7 +385,10 @@ async function entitiesRoute(req, res, url, rest, user) {
       }
       const opts = queryOptions(url);
       opts.q = scopedQuery(entity, user, opts.q);
-      if (entity === 'OsmTileCache' && !opts.q?.cell_key) {
+      if (entity === 'OsmTileCache' && !osmTileListAllowed(opts.q)) {
+        return send(res, 400, { error: 'Filtre OsmTileCache non autorise' });
+      }
+      if (entity === 'OsmTileCache') {
         opts.limit = Math.min(Number(opts.limit) || 200, 200);
       }
       const rows = await recOf(store.query(entity, opts));

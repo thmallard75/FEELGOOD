@@ -2,9 +2,10 @@
 // Geofabrik Grand Est fait trop de cellules pour tenir dans 512 Mo de RAM
 // si tout le cache est recharge a chaque demarrage.
 
-import { matches } from '../src/lib/memoryStore.js';
-
 export const TILE_ENTITY = 'OsmTileCache';
+
+const LIST_CAP = 5000;
+const IN_CAP = 2000;
 
 function project(rec, fields) {
   if (!fields?.length) return rec;
@@ -13,29 +14,10 @@ function project(rec, fields) {
   return out;
 }
 
-function sortLimit(rows, { sort, limit, skip, fields } = {}) {
-  let next = rows;
-  if (sort) {
-    const desc = sort.startsWith('-');
-    const key = desc ? sort.slice(1) : sort;
-    next = [...next].sort((a, b) => {
-      const av = a?.[key];
-      const bv = b?.[key];
-      if (av === bv) return 0;
-      if (av == null) return -1;
-      if (bv == null) return 1;
-      return (desc ? -1 : 1) * (av < bv ? -1 : 1);
-    });
-  }
-  if (skip) next = next.slice(Number(skip));
-  if (limit) next = next.slice(0, Number(limit));
-  return next.map((rec) => project(rec, fields));
-}
-
 function buildRecord(data, actor, newId) {
   const now = new Date().toISOString();
   const {
-    id,
+    id: _id,
     created_by: _cb,
     created_by_id: _cbi,
     created_date: _cd,
@@ -50,6 +32,10 @@ function buildRecord(data, actor, newId) {
     created_by: actor?.email,
     created_by_id: actor?.id,
   };
+}
+
+function isInsert(row) {
+  return row?.inserted === true || row?.inserted === 't';
 }
 
 export function createPgTileStore(pool, { newId }) {
@@ -81,19 +67,24 @@ class PgTileStore {
       CREATE UNIQUE INDEX IF NOT EXISTS feelgood_osm_tiles_cell_source
       ON feelgood_osm_tiles (cell_key, source)
     `);
-    const { rows } = await this.pool.query('SELECT COUNT(*)::int AS n FROM feelgood_osm_tiles');
-    this.count = rows[0]?.n || 0;
+    await this.refreshCount();
   }
 
   async migrateFrom(rows) {
     if (!rows?.length) return 0;
-    let n = 0;
-    for (const rec of rows) {
-      await this.upsert(rec);
-      n += 1;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      for (const rec of rows) await this.upsertWith(client, rec);
+      await client.query('COMMIT');
+    } catch (e) {
+      try { await client.query('ROLLBACK'); } catch { /* ignore */ }
+      throw e;
+    } finally {
+      client.release();
     }
     await this.refreshCount();
-    return n;
+    return rows.length;
   }
 
   async refreshCount() {
@@ -103,9 +94,13 @@ class PgTileStore {
   }
 
   async upsert(rec) {
+    return this.upsertWith(this.pool, rec);
+  }
+
+  async upsertWith(db, rec) {
     const cellKey = rec.cell_key || '';
     const source = rec.source || '';
-    const result = await this.pool.query(
+    const result = await db.query(
       `INSERT INTO feelgood_osm_tiles (id, cell_key, source, data, updated_at)
        VALUES ($1, $2, $3, $4::jsonb, NOW())
        ON CONFLICT (cell_key, source) DO UPDATE SET
@@ -125,18 +120,18 @@ class PgTileStore {
     const clauses = [];
     const cell = q?.cell_key;
     if (cell && typeof cell === 'object' && Array.isArray(cell.$in)) {
+      if (cell.$in.length > IN_CAP) return [];
       params.push(cell.$in);
       clauses.push(`cell_key = ANY($${params.length}::text[])`);
     } else if (typeof cell === 'string') {
       params.push(cell);
       clauses.push(`cell_key = $${params.length}`);
     } else if (q && Object.keys(q).length) {
-      const { rows } = await this.pool.query('SELECT data FROM feelgood_osm_tiles');
-      return sortLimit(rows.map((r) => r.data).filter((rec) => matches(rec, q)), {
-        sort, limit, skip, fields,
-      });
+      // Pas de SELECT * + filtre JS : un filtre inconnu viderait la RAM Render.
+      return [];
     }
 
+    const capped = Math.min(Math.max(Number(limit) || (clauses.length ? IN_CAP : 200), 1), LIST_CAP);
     let sql = 'SELECT data FROM feelgood_osm_tiles';
     if (clauses.length) sql += ` WHERE ${clauses.join(' AND ')}`;
     if (sort) {
@@ -145,10 +140,8 @@ class PgTileStore {
       params.push(key);
       sql += ` ORDER BY data->>$${params.length} ${desc ? 'DESC NULLS LAST' : 'ASC NULLS FIRST'}`;
     }
-    if (limit) {
-      params.push(Number(limit));
-      sql += ` LIMIT $${params.length}`;
-    }
+    params.push(capped);
+    sql += ` LIMIT $${params.length}`;
     if (skip) {
       params.push(Number(skip));
       sql += ` OFFSET $${params.length}`;
@@ -168,21 +161,31 @@ class PgTileStore {
   async create(data, actor) {
     const rec = buildRecord(data, actor, this.newId);
     const row = await this.upsert(rec);
-    if (row.inserted === true || row.inserted === 't') this.count += 1;
+    if (isInsert(row)) this.count += 1;
     return row.data || rec;
   }
 
   async bulkCreate(rows, actor) {
     const list = Array.isArray(rows) ? rows : [rows];
+    const client = await this.pool.connect();
     const out = [];
-    await this.pool.query('BEGIN');
+    let inserted = 0;
     try {
-      for (const data of list) out.push(await this.create(data, actor));
-      await this.pool.query('COMMIT');
+      await client.query('BEGIN');
+      for (const data of list) {
+        const rec = buildRecord(data, actor, this.newId);
+        const row = await this.upsertWith(client, rec);
+        if (isInsert(row)) inserted += 1;
+        out.push(row.data || rec);
+      }
+      await client.query('COMMIT');
+      this.count += inserted;
     } catch (e) {
-      await this.pool.query('ROLLBACK');
+      try { await client.query('ROLLBACK'); } catch { /* ignore */ }
       await this.refreshCount();
       throw e;
+    } finally {
+      client.release();
     }
     return out;
   }
@@ -230,8 +233,23 @@ class PgTileStore {
   }
 
   async deleteMany(query) {
-    const rows = await this.query({ q: query });
-    for (const rec of rows) await this.remove(rec.id);
-    return { deleted: rows.length };
+    const cell = query?.cell_key;
+    if (typeof cell === 'string') {
+      const result = await this.pool.query(
+        'DELETE FROM feelgood_osm_tiles WHERE cell_key = $1',
+        [cell],
+      );
+      await this.refreshCount();
+      return { deleted: result.rowCount || 0 };
+    }
+    if (cell && Array.isArray(cell.$in) && cell.$in.length && cell.$in.length <= IN_CAP) {
+      const result = await this.pool.query(
+        'DELETE FROM feelgood_osm_tiles WHERE cell_key = ANY($1::text[])',
+        [cell.$in],
+      );
+      await this.refreshCount();
+      return { deleted: result.rowCount || 0 };
+    }
+    return { deleted: 0 };
   }
 }
