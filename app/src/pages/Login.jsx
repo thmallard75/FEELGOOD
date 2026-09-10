@@ -5,6 +5,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { base44 } from '@/api/base44Client';
+import { markOAuthPending } from '@/lib/oauthPending';
+
+const SETUP = {
+  google: 'Gmail n’est pas encore branché sur le serveur. Render → Environment : ajoute GOOGLE_CLIENT_ID et GOOGLE_CLIENT_SECRET (console.cloud.google.com), puis Save.',
+  facebook: 'Facebook n’est pas encore branché. Render → Environment : ajoute FACEBOOK_APP_ID et FACEBOOK_APP_SECRET (developers.facebook.com), puis Save.',
+  apple: 'Apple n’est pas encore branché. Sur l’App Store, « Sign in with Apple » devient obligatoire dès que Gmail ou Facebook sont actifs.',
+};
 
 export default function Login({ onAuthenticated }) {
   const [providers, setProviders] = useState({ email: true, google: false, facebook: false, apple: false });
@@ -37,32 +44,42 @@ export default function Login({ onAuthenticated }) {
     }
   };
 
+  const social = async (provider) => {
+    setError('');
+    setBusy(true);
+    try {
+      const live = await base44.auth.providers?.() || providers;
+      if (!live[provider]) {
+        setError(SETUP[provider] || 'Ce mode de connexion n’est pas encore branché.');
+        return;
+      }
+      markOAuthPending();
+      await base44.auth.loginWithProvider(provider);
+    } catch (e) {
+      setError(e.message || 'Connexion impossible');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <AuthLayout
       icon={Shield}
       title="FeelGood Conduite"
       subtitle="Connecte-toi pour retrouver tes trajets et les partager avec un parent."
-      footer="Tes trajets et ton compte vivent sur ce serveur — pas dans le navigateur, pas sur Base44."
+      footer="Tes trajets vivent sur ton serveur. Instagram n’ouvre pas de session : utilise Facebook (compte Meta) ou Gmail."
     >
       <div className="space-y-3 mb-6">
-        {providers.google && (
-          <Button type="button" variant="outline" className="w-full h-11" onClick={() => base44.auth.loginWithProvider('google')}>
-            Continuer avec Google
-          </Button>
-        )}
-        {providers.facebook && (
-          <Button type="button" className="w-full h-11 bg-[#1877F2] hover:bg-[#166fe0] text-white" onClick={() => base44.auth.loginWithProvider('facebook')}>
-            Continuer avec Facebook
-          </Button>
-        )}
-        {providers.apple && (
-          <Button type="button" className="w-full h-11 bg-black hover:bg-neutral-800 text-white" onClick={() => base44.auth.loginWithProvider('apple')}>
-            Continuer avec Apple
-          </Button>
-        )}
-        {(providers.google || providers.facebook || providers.apple) && (
-          <p className="text-center text-xs text-muted-foreground pt-1">ou avec un e-mail</p>
-        )}
+        <Button type="button" variant="outline" className="w-full h-11" disabled={busy} onClick={() => social('google')}>
+          Continuer avec Google
+        </Button>
+        <Button type="button" className="w-full h-11 bg-[#1877F2] hover:bg-[#166fe0] text-white" disabled={busy} onClick={() => social('facebook')}>
+          Continuer avec Facebook
+        </Button>
+        <Button type="button" className="w-full h-11 bg-black hover:bg-neutral-800 text-white" disabled={busy} onClick={() => social('apple')}>
+          Continuer avec Apple
+        </Button>
+        <p className="text-center text-xs text-muted-foreground pt-1">ou avec un e-mail</p>
       </div>
 
       <form className="space-y-4" onSubmit={submit}>

@@ -209,6 +209,11 @@ function callbackUri(req, provider) {
 }
 
 export function oauthStartUrl(req, provider, fromUrl) {
+  if (!configuredProviders()[provider]) {
+    const err = new Error(`Le fournisseur ${provider} n’est pas configuré`);
+    err.status = 400;
+    throw err;
+  }
   const state = signJwt({ from_url: fromUrl, provider }, 600);
   const redirectUri = callbackUri(req, provider);
   if (provider === 'google') {

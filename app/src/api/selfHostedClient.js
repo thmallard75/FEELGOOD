@@ -5,6 +5,8 @@
  * Facebook, Apple, e-mail) vivent ici — pas sur Base44.
  */
 
+import { markOAuthPending, consumeOAuthPending } from '@/lib/oauthPending';
+
 const APP = 'feelgood';
 const TOKEN_KEY = 'base44_access_token';
 
@@ -38,8 +40,12 @@ export async function createSelfHostedClient(apiBase = '') {
     try {
       const here = new URL(window.location.href);
       const fromUrl = here.searchParams.get('access_token');
-      if (fromUrl) {
+      if (fromUrl && consumeOAuthPending()) {
         setToken(fromUrl);
+        here.searchParams.delete('access_token');
+        const qs = here.searchParams.toString();
+        window.history.replaceState({}, '', `${here.pathname}${qs ? `?${qs}` : ''}${here.hash}`);
+      } else if (fromUrl) {
         here.searchParams.delete('access_token');
         const qs = here.searchParams.toString();
         window.history.replaceState({}, '', `${here.pathname}${qs ? `?${qs}` : ''}${here.hash}`);
@@ -184,6 +190,7 @@ export async function createSelfHostedClient(apiBase = '') {
     },
     async loginWithProvider(provider, fromUrl) {
       const from = fromUrl || await oauthReturnUrl();
+      markOAuthPending();
       const start = `${origin}/api/apps/auth/${provider}/login?from_url=${encodeURIComponent(from)}`;
       try {
         const { Capacitor } = await import('@capacitor/core');

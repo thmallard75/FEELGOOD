@@ -24,7 +24,44 @@ Page confidentialité (à coller dans App Store Connect) :
 
 La démo sans compte reste `https://thmallard75.github.io/FEELGOOD/`. Ce n’est pas ce serveur.
 
-Sans les identifiants OAuth, l’app marche avec **e-mail + mot de passe**. Google / Facebook / Apple s’ajoutent plus tard (variables dans `app/.env.example`). « Sign in with Apple » devient obligatoire seulement si tu actives Google ou Facebook.
+Sans les identifiants OAuth collés dans Render, l’écran montre déjà **Google / Facebook / Apple**, plus e-mail + mot de passe. Un clic sans clés affiche comment les brancher — ce n’est pas une fausse connexion.
+
+## 5. Brancher Gmail et Facebook (comme sur Base44)
+
+Base44 gérait les clés pour toi. Sur ton serveur, tu les colles une fois. **Instagram n’ouvre pas de session** (ce n’est pas Gmail) : le bouton Facebook couvre le compte Meta.
+
+URI à coller telles quelles dans les consoles :
+
+```
+https://feelgood-mytf.onrender.com/api/apps/auth/callback/google
+https://feelgood-mytf.onrender.com/api/apps/auth/callback/facebook
+https://feelgood-mytf.onrender.com/api/apps/auth/callback/apple
+```
+
+### Gmail (Google)
+
+1. Ouvre [Google Cloud → Identifiants](https://console.cloud.google.com/apis/credentials).
+2. Crée un projet **FeelGood** si besoin.
+3. **Écran de consentement OAuth** → External → nom **FeelGood Conduite** → ton e-mail.
+4. **Créer des identifiants** → ID client OAuth → **Application Web**.
+5. Origines JavaScript : `https://feelgood-mytf.onrender.com`
+6. URI de redirection : celle **google** ci-dessus.
+7. Copie **ID client** et **Code secret**.
+8. Render → service **feelgood** → **Environment** → ajoute `GOOGLE_CLIENT_ID` et `GOOGLE_CLIENT_SECRET` → **Save**.
+
+### Facebook
+
+1. Ouvre [Facebook for Developers](https://developers.facebook.com/apps).
+2. Crée une app (type Consumer / Authentification).
+3. Ajoute **Facebook Login** → URI de redirection : celle **facebook** ci-dessus.
+4. Paramètres → Général : copie **Identifiant de l’app** et **Clé secrète**.
+5. Render → `FACEBOOK_APP_ID` et `FACEBOOK_APP_SECRET` → **Save**.
+
+### Apple (plus tard, obligatoire sur l’App Store si Gmail ou Facebook sont actifs)
+
+Render : `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY` (retours à la ligne en `\n`). URI **apple** ci-dessus.
+
+Après le redémarrage Render, **Continuer avec Google** ouvre vraiment Gmail.
 
 ## Pour une appli de qualité, ensuite
 
@@ -33,16 +70,7 @@ Sans les identifiants OAuth, l’app marche avec **e-mail + mot de passe**. Goog
 | Compte **Apple Developer** (tu l’as) | TestFlight / App Store | developer.apple.com |
 | Un **Mac + Xcode** | Compiler l’ipa | — |
 | (Plus tard) nom de domaine | Plus joli que `onrender.com` | registrar + Render → Custom Domain |
-| (Plus tard) Google / Facebook | Boutons sociaux | consoles OAuth |
 | (Optionnel) **Resend** | E-mails d’invitation parent | resend.com |
-
-URI de redirection le jour où tu actives OAuth :
-
-```
-https://feelgood-mytf.onrender.com/api/apps/auth/callback/google
-https://feelgood-mytf.onrender.com/api/apps/auth/callback/facebook
-https://feelgood-mytf.onrender.com/api/apps/auth/callback/apple
-```
 
 ## 2. Compiler l’app App Store
 

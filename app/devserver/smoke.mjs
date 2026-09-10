@@ -325,6 +325,24 @@ const okApp = sanitizeFromUrl('https://feelgood.example/app', '/', {
   requestHost: 'feelgood.example',
 });
 if (!okApp.startsWith('https://feelgood.example/')) fail(`origine app refusee: ${okApp}`);
+const stealNative = sanitizeFromUrl('feelgood://steal', '/', {
+  allowedOrigins: new Set(),
+  requestHost: 'feelgood.example',
+});
+if (stealNative.startsWith('feelgood:')) fail(`deep link ouvert: ${stealNative}`);
+const capNative = sanitizeFromUrl('capacitor://localhost/x', '/', {
+  allowedOrigins: new Set(),
+  requestHost: 'feelgood.example',
+});
+if (capNative !== '/') fail(`capacitor ouvert: ${capNative}`);
+const listed = await req('GET', `/api/apps/${APP}/auth/providers`);
+if (!listed.ok || listed.data?.email !== true) fail(`providers -> ${listed.status} ${JSON.stringify(listed.data)}`);
+if (listed.data.google || listed.data.facebook || listed.data.apple) {
+  // OK si les cles OAuth sont presentes en local
+} else {
+  const gLogin = await req('GET', '/api/apps/auth/google/login');
+  if (gLogin.status !== 400) fail(`google login sans cle devrait etre 400, pas ${gLogin.status}`);
+}
 console.log('[smoke] redirection OAuth bornee');
 
 console.log('[smoke] OK — comptes + GPS sur le serveur, KPI via Geofabrik, pas Base44');

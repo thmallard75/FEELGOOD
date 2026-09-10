@@ -1,7 +1,15 @@
 // Destinations OAuth autorisees : origine de l'app / de l'API, chemins relatifs,
 // et schemes natifs. Toute autre URL http(s) est refusee (pas de fuite de JWT).
 
-const NATIVE = new Set(['feelgood:', 'capacitor:', 'FeelGood:']);
+const NATIVE_AUTH = 'feelgood://auth';
+
+function isNativeAuthRedirect(url) {
+  if (url.protocol !== 'feelgood:') return false;
+  const host = url.hostname || url.host;
+  const path = url.pathname.replace(/\/+$/, '');
+  return (host === 'auth' && (path === '' || path === '/'))
+    || ((host === '' || host === 'localhost') && path === '/auth');
+}
 
 function originOf(raw) {
   if (!raw) return null;
@@ -40,7 +48,7 @@ export function sanitizeFromUrl(raw, fallback = '/', { allowedOrigins = new Set(
   const candidate = raw || fallback || '/';
   try {
     const url = new URL(candidate);
-    if (NATIVE.has(url.protocol)) return url.toString();
+    if (isNativeAuthRedirect(url)) return NATIVE_AUTH;
     if (url.protocol === 'http:' || url.protocol === 'https:') {
       if (allowedOrigins.has(url.origin)) return url.toString();
       if (isLoopbackHost(url.hostname) && isLoopbackHost(requestHost)) return url.toString();
