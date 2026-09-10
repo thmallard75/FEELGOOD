@@ -229,6 +229,12 @@ const huge = await req('POST', `/api/apps/${APP}/auth/register`, {
   full_name: 'Huge',
 });
 if (huge.status !== 400) fail(`mot de passe trop long devrait etre 400, pas ${huge.status}`);
+const fat = await req('POST', `/api/apps/${APP}/auth/register`, {
+  email: `fat-${Date.now()}@feelgood.local`,
+  password: 'p'.repeat(70_000),
+  full_name: 'Fat',
+});
+if (fat.status !== 413) fail(`corps auth trop gros devrait etre 413, pas ${fat.status}`);
 const noCode = await req('PUT', `/api/apps/${APP}/entities/ParentLink/bulk`, [
   { id: invite.data.id, status: 'active' },
 ]);

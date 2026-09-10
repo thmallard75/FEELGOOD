@@ -86,7 +86,8 @@ function redirect(res, location) {
   res.end();
 }
 
-const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 2_000_000);
+const MAX_AUTH_BYTES = 64 * 1024;
+const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 16 * 1024 * 1024);
 
 async function readRaw(req, max = MAX_BODY_BYTES) {
   const chunks = [];
@@ -103,8 +104,8 @@ async function readRaw(req, max = MAX_BODY_BYTES) {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-async function readJson(req) {
-  const raw = await readRaw(req);
+async function readJson(req, max = MAX_BODY_BYTES) {
+  const raw = await readRaw(req, max);
   if (!raw) return undefined;
   try {
     return JSON.parse(raw);
@@ -162,7 +163,7 @@ async function authRoutes(req, res, url, parts) {
 
   if (a === 'register' && req.method === 'POST') {
     try {
-      const user = auth.registerEmailUser(await readJson(req) || {});
+      const user = auth.registerEmailUser(await readJson(req, MAX_AUTH_BYTES) || {});
       return send(res, 201, { user: auth.publicUser(user), access_token: auth.tokenFor(user) });
     } catch (e) {
       return send(res, e.status || 400, { error: e.message });
@@ -171,7 +172,7 @@ async function authRoutes(req, res, url, parts) {
 
   if (a === 'login' && req.method === 'POST' && scope !== 'auth') {
     try {
-      const user = auth.loginEmailUser(await readJson(req) || {});
+      const user = auth.loginEmailUser(await readJson(req, MAX_AUTH_BYTES) || {});
       return send(res, 200, { user: auth.publicUser(user), access_token: auth.tokenFor(user) });
     } catch (e) {
       return send(res, e.status || 401, { error: e.message });
@@ -191,7 +192,7 @@ async function authRoutes(req, res, url, parts) {
     let code = url.searchParams.get('code');
     let state = url.searchParams.get('state');
     if (req.method === 'POST') {
-      const form = parseForm(await readRaw(req));
+      const form = parseForm(await readRaw(req, MAX_AUTH_BYTES));
       code = form.code || code;
       state = form.state || state;
     }

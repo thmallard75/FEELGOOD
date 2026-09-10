@@ -37,6 +37,8 @@ class PersistentStore extends MemoryStore {
     this.pool = null;
     this.backend = 'memory';
     this.restored = false;
+    this._dirty = false;
+    this._chain = Promise.resolve();
     this.onChange = () => this.scheduleSave();
   }
 
@@ -105,6 +107,7 @@ class PersistentStore extends MemoryStore {
   }
 
   scheduleSave() {
+    this._dirty = true;
     clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => {
       this.flush().catch((e) => console.error('[api] sauvegarde:', e.message));
@@ -114,18 +117,34 @@ class PersistentStore extends MemoryStore {
 
   async flush() {
     clearTimeout(this.saveTimer);
+    this._dirty = true;
+    const next = this._chain.then(() => this._persistLatest());
+    this._chain = next.catch((e) => {
+      console.error('[api] sauvegarde:', e.message);
+    });
+    return next;
+  }
+
+  async _persistLatest() {
+    while (this._dirty) {
+      this._dirty = false;
+      await this._persist(this.toJSON());
+    }
+  }
+
+  async _persist(snapshot) {
     if (this.pool) {
       await this.pool.query(
         `INSERT INTO feelgood_store (id, data, updated_at)
          VALUES (1, $1::jsonb, NOW())
          ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`,
-        [this.toJSON()],
+        [snapshot],
       );
       return;
     }
     mkdirSync(DATA_DIR, { recursive: true });
     const tmp = `${DATA_FILE}.tmp`;
-    writeFileSync(tmp, JSON.stringify(this.toJSON(), null, 1));
+    writeFileSync(tmp, JSON.stringify(snapshot, null, 1));
     renameSync(tmp, DATA_FILE);
   }
 
