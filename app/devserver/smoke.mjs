@@ -5,6 +5,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { sanitizeFromUrl } from './safeUrl.mjs';
 
 const API = process.env.API_URL || 'http://127.0.0.1:8787';
 const APP = 'feelgood';
@@ -156,5 +157,43 @@ const stolen = await req('POST', `/api/apps/${APP}/integrations/send-email`, {
 if (stolen.status !== 403) fail(`send-email d'un autre compte devrait etre 403, pas ${stolen.status}`);
 token = original;
 console.log('[smoke] send-email isole par compte');
+
+const spoof = await req('POST', `/api/apps/${APP}/entities/Trip`, {
+  status: 'pending_analysis',
+  created_by_id: other.data.user.id,
+  gps_track: [],
+});
+if (!spoof.ok) fail(`Trip.create spoof -> ${spoof.status} ${JSON.stringify(spoof.data)}`);
+if (spoof.data.created_by_id !== me.data.id) {
+  fail(`created_by_id client a ete honore: ${spoof.data.created_by_id}`);
+}
+token = other.data.access_token;
+const stolenTrip = await req('GET', `/api/apps/${APP}/entities/Trip/${spoof.data.id}`);
+if (stolenTrip.status !== 404) fail(`spoof Trip visible par l'autre compte (${stolenTrip.status})`);
+const stolenFn = await req('POST', `/api/apps/${APP}/functions/analyzeTrip`, { tripId: trip.data.id });
+if (stolenFn.status !== 404) fail(`analyzeTrip d'un autre trajet devrait etre 404, pas ${stolenFn.status}`);
+const blast = await req('POST', `/api/apps/${APP}/functions/sendWeeklySummary`, { all: true, email: email });
+if (blast.data?.scope === 'all') fail('sendWeeklySummary all encore possible');
+const cron = await req('POST', `/api/apps/${APP}/functions/retryPendingOsm`, {});
+if (cron.status !== 403) fail(`retryPendingOsm sans cle devrait etre 403, pas ${cron.status}`);
+token = original;
+console.log('[smoke] isolation fonctions + created_by_id ok');
+
+const evil = sanitizeFromUrl('https://evil.example/steal', '/', {
+  allowedOrigins: new Set(['https://feelgood.example']),
+  requestHost: 'feelgood.example',
+});
+if (evil !== '/') fail(`OAuth from_url ouvert: ${evil}`);
+const native = sanitizeFromUrl('feelgood://auth', '/', {
+  allowedOrigins: new Set(),
+  requestHost: 'feelgood.example',
+});
+if (!native.startsWith('feelgood:')) fail(`deep link refuse: ${native}`);
+const okApp = sanitizeFromUrl('https://feelgood.example/app', '/', {
+  allowedOrigins: new Set(['https://feelgood.example']),
+  requestHost: 'feelgood.example',
+});
+if (!okApp.startsWith('https://feelgood.example/')) fail(`origine app refusee: ${okApp}`);
+console.log('[smoke] redirection OAuth bornee');
 
 console.log('[smoke] OK — comptes + GPS sur le serveur, KPI renvoyes, pas Base44');

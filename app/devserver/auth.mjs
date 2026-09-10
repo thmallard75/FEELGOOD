@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { store, DEV_USER } from './store.mjs';
+import { collectAllowedOrigins, sanitizeFromUrl } from './safeUrl.mjs';
 
 const DATA_DIR = process.env.DATA_DIR || join(import.meta.dirname, '.data');
 const TOKEN_TTL = 60 * 60 * 24 * 30;
@@ -173,15 +174,11 @@ export function publicApiUrl(req) {
   return `${proto}://${req.headers.host}`;
 }
 
-export function safeFromUrl(raw, fallback) {
-  const candidate = raw || fallback || '/';
-  try {
-    const url = new URL(candidate);
-    if (['http:', 'https:', 'feelgood:', 'capacitor:', 'FeelGood:'].includes(url.protocol)) return url.toString();
-  } catch {
-    if (candidate.startsWith('/')) return candidate;
-  }
-  return fallback || '/';
+export function safeFromUrl(raw, fallback, req) {
+  return sanitizeFromUrl(raw, fallback || '/', {
+    allowedOrigins: collectAllowedOrigins(req),
+    requestHost: req?.headers?.host || '',
+  });
 }
 
 function callbackUri(req, provider) {
@@ -324,7 +321,7 @@ export async function finishOAuth(req, provider, { code, state }) {
   }
   const user = upsertOAuthUser({ ...profile, provider });
   const access_token = signJwt({ sub: user.id, email: user.email });
-  const from = safeFromUrl(st.from_url, process.env.APP_PUBLIC_URL);
+  const from = safeFromUrl(st.from_url, process.env.APP_PUBLIC_URL, req);
   const dest = new URL(from, publicApiUrl(req));
   dest.searchParams.set('access_token', access_token);
   return { user, access_token, redirect: dest.toString() };

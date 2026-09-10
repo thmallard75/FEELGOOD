@@ -39,6 +39,7 @@ process.on('SIGTERM', () => shutdown(0));
 run('api', process.execPath, ['--experimental-strip-types', 'devserver/server.mjs'], {
   DEV_API_PORT: API_PORT,
   DEV_API_HOST: API_HOST,
+  APP_PUBLIC_URL: process.env.APP_PUBLIC_URL || 'http://127.0.0.1:5173',
 });
 
 run('vite', process.execPath, ['node_modules/vite/bin/vite.js', ...process.argv.slice(2)], {

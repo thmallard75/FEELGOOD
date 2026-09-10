@@ -1,46 +1,72 @@
 // Substitut du SDK Base44 pour l'execution locale des fonctions backend.
-// Entites = magasin local. auth.me() = utilisateur de la requete HTTP.
+// entities = magasin filtre par l'utilisateur HTTP. asServiceRole = magasin
+// complet, reserve aux fonctions (analyzeTrip, caches OSM) apres le controle
+// d'acces de la route HTTP.
 
 import { store } from '../store.mjs';
 import { currentUser } from '../context.mjs';
 import { publicUser } from '../auth.mjs';
+import { canRead, canWrite, scopedQuery } from '../rls.mjs';
 
 function entityHandler(name, { service = false } = {}) {
+  const actor = () => currentUser();
+
+  function scoped(q) {
+    if (service) return q;
+    return scopedQuery(name, actor(), q);
+  }
+
+  function visible(rec) {
+    if (service) return Boolean(rec);
+    return canRead(name, rec, actor());
+  }
+
+  function writable(rec) {
+    if (service) return Boolean(rec);
+    return canWrite(name, rec, actor());
+  }
+
   return {
     async list(sort, limit, skip, fields) {
-      return store.query(name, { sort, limit, skip, fields: splitFields(fields) });
+      return store.query(name, { q: scoped(), sort, limit, skip, fields: splitFields(fields) });
     },
     async filter(q, sort, limit, skip, fields) {
-      return store.query(name, { q, sort, limit, skip, fields: splitFields(fields) });
+      return store.query(name, { q: scoped(q), sort, limit, skip, fields: splitFields(fields) });
     },
     async get(id) {
       const rec = store.get(name, id);
-      if (!rec) throw notFound(name, id);
+      if (!visible(rec)) throw notFound(name, id);
       return rec;
     },
     async create(data) {
-      return store.create(name, data, currentUser() || undefined);
+      const user = actor();
+      if (!service && !user) throw Object.assign(new Error('Unauthorized'), { status: 401 });
+      return store.create(name, data, user || undefined);
     },
     async bulkCreate(rows) {
-      return store.bulkCreate(name, rows, currentUser() || undefined);
+      const user = actor();
+      if (!service && !user) throw Object.assign(new Error('Unauthorized'), { status: 401 });
+      return store.bulkCreate(name, rows, user || undefined);
     },
     async update(id, data) {
-      const rec = store.update(name, id, data);
-      if (!rec) throw notFound(name, id);
-      return rec;
+      const rec = store.get(name, id);
+      if (!writable(rec)) throw notFound(name, id);
+      return store.update(name, id, data);
     },
     async updateMany(query, data) {
-      return store.updateMany(name, query, data);
+      return store.updateMany(name, scoped(query), data);
     },
     async bulkUpdate(rows) {
-      return store.bulkUpdate(name, rows);
+      const allowed = (rows || []).filter((row) => writable(store.get(name, row.id)));
+      return store.bulkUpdate(name, allowed);
     },
     async delete(id) {
-      if (!store.remove(name, id)) throw notFound(name, id);
+      const rec = store.get(name, id);
+      if (!writable(rec) || !store.remove(name, id)) throw notFound(name, id);
       return { ok: true };
     },
     async deleteMany(query) {
-      return store.deleteMany(name, query);
+      return store.deleteMany(name, scoped(query));
     },
     subscribe() {
       return () => {};
@@ -59,31 +85,39 @@ function notFound(name, id) {
   return err;
 }
 
-function makeEntities() {
+function makeEntities({ service = false } = {}) {
   return new Proxy({}, {
     get(_target, name) {
       if (typeof name !== 'string' || name.startsWith('_') || name === 'then') return undefined;
-      return entityHandler(name);
+      return entityHandler(name, { service });
     },
   });
 }
 
-const integrations = {
-  Core: {
-    async InvokeLLM() {
-      throw new Error('InvokeLLM indisponible dans le backend de developpement');
+function makeIntegrations({ service = false } = {}) {
+  return {
+    Core: {
+      async InvokeLLM() {
+        throw new Error('InvokeLLM indisponible dans le backend de developpement');
+      },
+      async SendEmail(payload) {
+        const { sendAppEmail } = await import('../auth.mjs');
+        const user = currentUser();
+        const to = typeof payload?.to === 'string' ? payload.to.trim().toLowerCase() : '';
+        if (!service && user && to !== String(user.email || '').toLowerCase()) {
+          const err = new Error('Envoi e-mail refuse');
+          err.status = 403;
+          throw err;
+        }
+        return sendAppEmail(payload);
+      },
     },
-    async SendEmail(payload) {
-      const { sendAppEmail } = await import('../auth.mjs');
-      return sendAppEmail(payload);
-    },
-  },
-};
+  };
+}
 
 function makeClient() {
-  const entities = makeEntities();
   const client = {
-    entities,
+    entities: makeEntities({ service: false }),
     auth: {
       async me() {
         const user = currentUser();
@@ -96,7 +130,7 @@ function makeClient() {
         return publicUser(store.update('User', user.id, data));
       },
     },
-    integrations,
+    integrations: makeIntegrations({ service: false }),
     functions: {
       async invoke(name, body) {
         const { invokeFunction } = await import('../functions.mjs');
@@ -105,7 +139,12 @@ function makeClient() {
       },
     },
   };
-  client.asServiceRole = client;
+  client.asServiceRole = {
+    entities: makeEntities({ service: true }),
+    integrations: makeIntegrations({ service: true }),
+    auth: client.auth,
+    functions: client.functions,
+  };
   return client;
 }
 

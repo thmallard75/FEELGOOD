@@ -16,13 +16,45 @@ const { seed } = await import('./seed.mjs');
 const { requestContext } = await import('./context.mjs');
 const auth = await import('./auth.mjs');
 const { serveWeb, webEnabled } = await import('./web.mjs');
+const {
+  scopedQuery,
+  canRead,
+  canWrite,
+  parentLinkPatchAllowed,
+  stripOwnership,
+} = await import('./rls.mjs');
 
 const PORT = Number(process.env.PORT || process.env.DEV_API_PORT || 8787);
 const HOST = process.env.HOST
   || process.env.DEV_API_HOST
   || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1');
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
-const SHARED_ENTITIES = new Set(['OsmTileCache', 'DepartementPreload', 'RegionDownload']);
+
+const USER_FUNCTIONS = new Set([
+  'analyzeTrip',
+  'computeCoaching',
+  'reanalyzeAllTrips',
+  'deleteUserData',
+  'prefetchRegion',
+  'getOsmFeatures',
+  'osmProxy',
+  'sendWeeklySummary',
+]);
+
+const CRON_FUNCTIONS = new Set([
+  'retryPendingOsm',
+  'retryPendingDownloads',
+  'getPendingDepartements',
+  'importGeofabrikTiles',
+  'detectDepartementsToPreload',
+]);
+
+function hasServiceKey(req) {
+  const provided = req.headers['x-service-key'];
+  const expected = process.env.FEELGOOD_SERVICE_KEY;
+  if (!provided || !expected) return false;
+  return provided === expected;
+}
 
 function corsHeaders(req) {
   const origin = CORS_ORIGIN === '*' ? (req?.headers?.origin || '*') : CORS_ORIGIN;
@@ -94,40 +126,6 @@ function publicSettings(appId) {
   };
 }
 
-function scopedQuery(entity, user, extra) {
-  if (SHARED_ENTITIES.has(entity)) return extra;
-  if (entity === 'ParentLink') {
-    const owner = {
-      $or: [
-        { created_by_id: user.id },
-        { parent_email: user.email },
-        { young_driver_email: user.email },
-      ],
-    };
-    return extra ? { $and: [extra, owner] } : owner;
-  }
-  return extra ? { $and: [extra, { created_by_id: user.id }] } : { created_by_id: user.id };
-}
-
-function canRead(entity, rec, user) {
-  if (!rec) return false;
-  if (SHARED_ENTITIES.has(entity)) return true;
-  if (entity === 'ParentLink') {
-    return rec.created_by_id === user.id
-      || rec.parent_email === user.email
-      || rec.young_driver_email === user.email;
-  }
-  return rec.created_by_id === user.id;
-}
-
-function canWrite(entity, rec, user) {
-  if (SHARED_ENTITIES.has(entity)) return true;
-  if (entity === 'ParentLink') {
-    return rec.created_by_id === user.id || rec.young_driver_email === user.email || rec.parent_email === user.email;
-  }
-  return rec.created_by_id === user.id;
-}
-
 async function authRoutes(req, res, url, parts) {
   // /api/apps/auth/<provider>/login
   // /api/apps/auth/callback/<provider>
@@ -142,7 +140,7 @@ async function authRoutes(req, res, url, parts) {
   }
 
   if (a === 'logout') {
-    const from = auth.safeFromUrl(url.searchParams.get('from_url'), process.env.APP_PUBLIC_URL || '/');
+    const from = auth.safeFromUrl(url.searchParams.get('from_url'), process.env.APP_PUBLIC_URL || '/', req);
     return redirect(res, from);
   }
 
@@ -169,7 +167,7 @@ async function authRoutes(req, res, url, parts) {
     if (!auth.configuredProviders()[a]) {
       return send(res, 400, { error: `${a} n’est pas configuré sur ce serveur (variables d’environnement manquantes).` });
     }
-    const from = auth.safeFromUrl(url.searchParams.get('from_url'), process.env.APP_PUBLIC_URL);
+    const from = auth.safeFromUrl(url.searchParams.get('from_url'), process.env.APP_PUBLIC_URL, req);
     return redirect(res, auth.oauthStartUrl(req, a, from));
   }
 
@@ -246,8 +244,24 @@ async function route(req, res, url) {
     }
     if (section === 'functions') {
       const name = parts[4];
-      const payload = await readJson(req);
+      let payload = await readJson(req) || {};
+      const privileged = hasServiceKey(req);
+      if (CRON_FUNCTIONS.has(name) && !privileged) {
+        return send(res, 403, { error: 'fonction reservee au serveur' });
+      }
+      if (!privileged && !USER_FUNCTIONS.has(name) && !CRON_FUNCTIONS.has(name)) {
+        return send(res, 404, { error: `Fonction inconnue: ${name}` });
+      }
+      if (!privileged && name === 'sendWeeklySummary') {
+        payload = {};
+      }
       if (name === 'analyzeTrip' && payload?.tripId) {
+        const trip = store.get('Trip', payload.tripId);
+        if (!canRead('Trip', trip, user)) {
+          return send(res, 404, { error: 'Trajet introuvable' });
+        }
+      }
+      if (name === 'computeCoaching' && payload?.tripId) {
         const trip = store.get('Trip', payload.tripId);
         if (!canRead('Trip', trip, user)) {
           return send(res, 404, { error: 'Trajet introuvable' });
@@ -296,18 +310,31 @@ async function entitiesRoute(req, res, url, rest, user) {
       return send(res, 200, store.query(entity, opts));
     }
     case 'POST': {
-      const body = await readJson(req);
-      if (tail === 'bulk') return send(res, 200, store.bulkCreate(entity, body, user));
+      const body = stripOwnership(await readJson(req)) || {};
+      if (entity === 'ParentLink') body.young_driver_email = user.email;
+      if (tail === 'bulk') {
+        const rows = (Array.isArray(body) ? body : [body]).map((row) => {
+          const next = stripOwnership(row);
+          if (entity === 'ParentLink') next.young_driver_email = user.email;
+          return next;
+        });
+        return send(res, 200, store.bulkCreate(entity, rows, user));
+      }
       return send(res, 201, store.create(entity, body, user));
     }
     case 'PUT': {
-      const body = await readJson(req);
+      const body = stripOwnership(await readJson(req)) || {};
       if (tail === 'bulk') {
-        const allowed = (body || []).filter((row) => canWrite(entity, store.get(entity, row.id), user));
+        const allowed = (Array.isArray(body) ? body : [])
+          .map((row) => ({ ...stripOwnership(row), id: row.id }))
+          .filter((row) => canWrite(entity, store.get(entity, row.id), user));
         return send(res, 200, store.bulkUpdate(entity, allowed));
       }
       const rec = store.get(entity, tail);
       if (!canWrite(entity, rec, user)) return send(res, 404, { error: `${entity} ${tail} introuvable` });
+      if (entity === 'ParentLink' && !parentLinkPatchAllowed(rec, user, body)) {
+        return send(res, 403, { error: 'Modification parent interdite' });
+      }
       return send(res, 200, store.update(entity, tail, body));
     }
     case 'PATCH': {

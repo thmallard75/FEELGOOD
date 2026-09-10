@@ -69,6 +69,18 @@ const defaultIdGenerator = () => {
   return `${Date.now().toString(16)}${counter.toString(16).padStart(6, '0')}`;
 };
 
+function withoutOwnership(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return data || {};
+  const {
+    id: _id,
+    created_by: _cb,
+    created_by_id: _cbi,
+    created_date: _cd,
+    ...rest
+  } = data;
+  return rest;
+}
+
 export class MemoryStore {
   constructor({ newId = defaultIdGenerator, actor = {} } = {}) {
     this.collections = new Map();
@@ -116,9 +128,9 @@ export class MemoryStore {
       id: this.newId(),
       created_date: now,
       updated_date: now,
+      ...withoutOwnership(data),
       created_by: actor?.email,
       created_by_id: actor?.id,
-      ...data,
     };
     this.collection(name).push(rec);
     this.changed();
@@ -132,15 +144,14 @@ export class MemoryStore {
   update(name, id, data) {
     const rec = this.get(name, id);
     if (!rec) return null;
-    Object.assign(rec, data, { id: rec.id, updated_date: new Date().toISOString() });
+    Object.assign(rec, withoutOwnership(data), { id: rec.id, updated_date: new Date().toISOString() });
     this.changed();
     return rec;
   }
 
   updateMany(name, query, data) {
     const rows = this.collection(name).filter((rec) => matches(rec, query));
-    // Base44 accepte les operateurs Mongo ici ; seul $set est utilise par l'app.
-    const patch = data?.$set ?? data;
+    const patch = withoutOwnership(data?.$set ?? data);
     for (const rec of rows) Object.assign(rec, patch, { id: rec.id });
     this.changed();
     return { matched: rows.length, modified: rows.length };
