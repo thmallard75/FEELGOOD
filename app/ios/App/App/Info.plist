@@ -32,9 +32,9 @@
 		<true/>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>FeelGood enregistre ta position pendant un trajet. L’analyse de conduite est faite sur ton serveur ; les destinations ne sont pas envoyées à un tiers.</string>
+	<string>FeelGood enregistre ta position pendant un trajet. L’analyse de conduite (scores, carte routière) est faite sur ton serveur, pas sur un cloud tiers.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>FeelGood peut continuer à suivre ta position si tu quittes l’app pendant un trajet, uniquement le temps de l’enregistrement. L’analyse se fait ensuite sur ton serveur.</string>
+	<string>FeelGood peut continuer à suivre ta position si tu quittes l’app pendant un trajet, uniquement le temps de l’enregistrement. Les scores sont ensuite calculés sur ton serveur.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
