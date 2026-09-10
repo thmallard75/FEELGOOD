@@ -119,4 +119,42 @@ const peek = await req('GET', `/api/apps/${APP}/entities/Trip/${trip.data.id}`);
 if (peek.status !== 404) fail(`l'autre compte voit le trajet (${peek.status})`);
 token = original;
 console.log('[smoke] isolation des trajets ok');
+
+const relay = await req('POST', `/api/apps/${APP}/integrations/send-email`, {
+  to: 'relay@example.com',
+  subject: 'spam',
+  body: 'open relay',
+});
+if (relay.status !== 403) fail(`send-email hors ParentLink devrait etre 403, pas ${relay.status}`);
+console.log('[smoke] send-email refuse hors invitation');
+
+const parentEmail = `parent-${Date.now()}@feelgood.local`;
+const invite = await req('POST', `/api/apps/${APP}/entities/ParentLink`, {
+  young_driver_email: email,
+  young_driver_name: 'Smoke',
+  parent_email: parentEmail,
+  status: 'pending',
+});
+if (!invite.ok || !invite.data?.id) fail(`ParentLink.create -> ${invite.status} ${JSON.stringify(invite.data)}`);
+
+const sent = await req('POST', `/api/apps/${APP}/integrations/send-email`, {
+  parentLinkId: invite.data.id,
+  to: parentEmail,
+  subject: 'ceci ne doit pas partir',
+  body: 'contenu client ignore',
+});
+if (!sent.ok || sent.data?.ok !== true) {
+  fail(`send-email invitation -> ${sent.status} ${JSON.stringify(sent.data)}`);
+}
+console.log('[smoke] send-email invitation parent ok');
+
+token = other.data.access_token;
+const stolen = await req('POST', `/api/apps/${APP}/integrations/send-email`, {
+  parentLinkId: invite.data.id,
+  to: parentEmail,
+});
+if (stolen.status !== 403) fail(`send-email d'un autre compte devrait etre 403, pas ${stolen.status}`);
+token = original;
+console.log('[smoke] send-email isole par compte');
+
 console.log('[smoke] OK — comptes + GPS sur le serveur, KPI renvoyes, pas Base44');

@@ -48,30 +48,10 @@ export default function ParentSection({ user, trips }) {
       status: 'pending',
     });
 
-    // Envoyer l'email d'invitation
     try {
       await base44.integrations.Core.SendEmail({
-      to: email.trim(),
-      subject: `${user.full_name || 'Un jeune conducteur'} vous invite sur FeelGood Conduite`,
-      body: `Bonjour,
-
-${user.full_name || 'Un jeune conducteur'} vous invite à suivre sa progression sur FeelGood Conduite.
-
-Pour accéder au tableau de bord parent, connectez-vous (ou créez un compte) sur l'application avec cette adresse email, puis rendez-vous dans la section "Espace Parent" via l'icône Profil.
-
-Vous pourrez suivre :
-• Le score global de conduite (semaine et mois)
-• La progression au fil des semaines
-• Les statistiques par catégorie
-• Les alertes importantes (fatigue, téléphone)
-• Le kilométrage total
-
-Aucune donnée de localisation ni détail de trajet ne sera partagé — uniquement les statistiques globales.
-
-L'accès peut être révoqué à tout moment par le conducteur.
-
-Bonne route !
-L'équipe FeelGood Conduite`,
+        parentLinkId: link.id,
+        to: link.parent_email,
       });
     } catch (err) {
       console.warn('Invitation e-mail:', err.message);

@@ -225,10 +225,10 @@ async function route(req, res, url) {
     if (!user) return send(res, 401, { error: 'auth_required' });
     const payload = await readJson(req) || {};
     try {
-      const result = await auth.sendAppEmail(payload);
+      const result = await auth.sendParentInviteEmail(user, payload);
       return send(res, 200, result);
     } catch (e) {
-      return send(res, 502, { error: e.message });
+      return send(res, e.status || 502, { error: e.message });
     }
   }
 

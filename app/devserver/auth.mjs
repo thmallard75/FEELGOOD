@@ -347,7 +347,76 @@ export function userFromRequest(req) {
   return findUserById(payload.sub);
 }
 
+function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
+function isEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function httpError(status, message) {
+  const err = new Error(message);
+  err.status = status;
+  return err;
+}
+
+function ownsYoungDriverLink(user, link) {
+  if (!user || !link) return false;
+  if (link.created_by_id === user.id) return true;
+  return normalizeEmail(link.young_driver_email) === normalizeEmail(user.email);
+}
+
+function parentInviteCopy(user) {
+  const name = user.full_name || String(user.email || '').split('@')[0] || 'Un jeune conducteur';
+  return {
+    subject: `${name} vous invite sur FeelGood Conduite`,
+    body: `Bonjour,
+
+${name} vous invite à suivre sa progression sur FeelGood Conduite.
+
+Pour accéder au tableau de bord parent, connectez-vous (ou créez un compte) sur l'application avec cette adresse email, puis rendez-vous dans la section "Espace Parent" via l'icône Profil.
+
+Vous pourrez suivre :
+• Le score global de conduite (semaine et mois)
+• La progression au fil des semaines
+• Les statistiques par catégorie
+• Les alertes importantes (fatigue, téléphone)
+• Le kilométrage total
+
+Aucune donnée de localisation ni détail de trajet ne sera partagé — uniquement les statistiques globales.
+
+L'accès peut être révoqué à tout moment par le conducteur.
+
+Bonne route !
+L'équipe FeelGood Conduite`,
+  };
+}
+
+function findOwnedParentInvite(user, dest, parentLinkId) {
+  if (parentLinkId) {
+    const link = store.get('ParentLink', parentLinkId);
+    if (
+      ownsYoungDriverLink(user, link)
+      && link.status !== 'revoked'
+      && (!dest || normalizeEmail(link.parent_email) === dest)
+    ) {
+      return link;
+    }
+    return null;
+  }
+  return store.query('ParentLink').find((row) => (
+    ownsYoungDriverLink(user, row)
+    && row.status !== 'revoked'
+    && normalizeEmail(row.parent_email) === dest
+  )) || null;
+}
+
+// Interne : résumé hebdo, etc. Ne pas relayer tel quel depuis HTTP.
 export async function sendAppEmail({ to, subject, body }) {
+  if (typeof to !== 'string' || !isEmail(normalizeEmail(to))) {
+    throw httpError(400, 'Adresse e-mail invalide');
+  }
   if (process.env.RESEND_API_KEY) {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -357,17 +426,31 @@ export async function sendAppEmail({ to, subject, body }) {
       },
       body: JSON.stringify({
         from: process.env.MAIL_FROM || 'FeelGood <noreply@localhost>',
-        to,
+        to: normalizeEmail(to),
         subject,
         text: body,
       }),
     });
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`Envoi e-mail refuse: ${text}`);
+      throw httpError(502, `Envoi e-mail refuse: ${text}`);
     }
     return { ok: true, provider: 'resend' };
   }
-  console.log(`[api] e-mail (non envoye, pas de RESEND_API_KEY) -> ${to}: ${subject}\n${body}`);
+  console.log(`[api] e-mail (non envoye, pas de RESEND_API_KEY) -> ${normalizeEmail(to)}: ${subject}\n${body}`);
   return { ok: true, simulated: true };
+}
+
+export async function sendParentInviteEmail(user, payload = {}) {
+  const dest = typeof payload.to === 'string' ? normalizeEmail(payload.to) : '';
+  const parentLinkId = typeof payload.parentLinkId === 'string' ? payload.parentLinkId : '';
+  if (!dest && !parentLinkId) throw httpError(400, 'Adresse e-mail invalide');
+  if (dest && !isEmail(dest)) throw httpError(400, 'Adresse e-mail invalide');
+
+  const link = findOwnedParentInvite(user, dest, parentLinkId);
+  if (!link) throw httpError(403, 'Invitation parent introuvable');
+
+  const to = normalizeEmail(link.parent_email);
+  const { subject, body } = parentInviteCopy(user);
+  return sendAppEmail({ to, subject, body });
 }
