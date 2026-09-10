@@ -101,7 +101,9 @@ export default function Recording() {
       setTripResult(result);
       setPhase('done');
       toast.success(`Trajet enregistré — ${result.distKm} km en ${result.durationMin} min`, {
-        description: 'Bilan disponible',
+        description: result.analysisOk
+          ? 'Bilan disponible'
+          : 'Analyse en cours sur le serveur — le bilan se mettra à jour tout seul.',
         duration: 5000,
       });
     } catch (err) {

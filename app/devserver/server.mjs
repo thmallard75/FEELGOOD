@@ -202,7 +202,12 @@ async function route(req, res, url) {
   }
   const parts = url.pathname.replace(/^\/+|\/+$/g, '').split('/');
   if (parts[0] !== 'api' || parts[1] !== 'apps') {
-    if (parts[0] === '__dev') return devRoute(req, res, parts.slice(1));
+    if (parts[0] === '__dev') {
+      if (process.env.FEELGOOD_DEV_ROUTES !== '1') {
+        return send(res, 404, { error: `Route non geree: ${url.pathname}` });
+      }
+      return devRoute(req, res, parts.slice(1));
+    }
     return send(res, 404, { error: `Route non geree: ${url.pathname}` });
   }
 

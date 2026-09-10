@@ -50,6 +50,10 @@ const unauth = await req('GET', `/api/apps/${APP}/entities/User/me`);
 if (unauth.status !== 401) fail(`User/me sans jeton devrait etre 401, pas ${unauth.status}`);
 console.log('[smoke] 401 sans compte');
 
+const wipe = await req('GET', '/__dev/reseed');
+if (wipe.status !== 404) fail(`/__dev/reseed devrait etre 404 hors FEELGOOD_DEV_ROUTES, pas ${wipe.status}`);
+console.log('[smoke] /__dev/reseed bloque');
+
 const email = `smoke-${Date.now()}@feelgood.local`;
 const registered = await req('POST', `/api/apps/${APP}/auth/register`, {
   email,

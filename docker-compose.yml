@@ -4,10 +4,10 @@ services:
       context: ./app
       dockerfile: Dockerfile
     restart: unless-stopped
-    # En production avec Caddy sur la meme machine, restreins a :
-    #   "127.0.0.1:8787:8787"
+    # En production, Caddy (deploy/Caddyfile) est la porte HTTPS.
+    # N'ouvre 8787 sur 0.0.0.0 que pour un test LAN, jamais sur Internet.
     ports:
-      - "8787:8787"
+      - "127.0.0.1:8787:8787"
     environment:
       HOST: 0.0.0.0
       PORT: 8787

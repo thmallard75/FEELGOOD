@@ -662,14 +662,17 @@ Deno.serve(async (req) => {
     // Pré-traitement GPS : rejet des points aberrants + lissage léger + confiance
     const { track: gpsTrack, confidence: dataConfidence, dropped: droppedCount } = filterGpsTrack(rawTrack);
     if (gpsTrack.length < 5) {
-      await base44.asServiceRole.entities.Trip.update(tripId, {
-        status: 'completed', overall_score: 100, speed_score: 100,
-        smoothness_score: 100, anticipation_score: 100, stop_score: 100,
+      const noisyKpis = {
+        overall_score: 100, speed_score: 100, smoothness_score: 100,
+        anticipation_score: 100, stop_score: 100,
         serenity_index: 100, serenity_label: 'Sereine',
         serenity_summary: 'Trace GPS trop bruitée pour une analyse approfondie.',
         data_confidence: Math.round(dataConfidence * 100) / 100,
+      };
+      await base44.asServiceRole.entities.Trip.update(tripId, {
+        status: 'completed', ...noisyKpis,
       });
-      return Response.json({ ok: true, note: 'Trace GPS trop bruitée' });
+      return Response.json({ ok: true, note: 'Trace GPS trop bruitée', overall_score: 100, kpis: noisyKpis });
     }
     console.log(`[analyzeTrip] GPS: ${rawTrack.length} → ${gpsTrack.length} pts (dropped ${droppedCount}, confiance ${dataConfidence.toFixed(2)})`);
 

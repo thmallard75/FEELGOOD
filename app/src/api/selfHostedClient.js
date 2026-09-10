@@ -210,7 +210,7 @@ export async function createSelfHostedClient(apiBase = '') {
     functions: {
       async invoke(name, args) {
         const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 120000);
+        const timer = setTimeout(() => ctrl.abort(), 180000);
         try {
           return await request('POST', `/api/apps/${APP}/functions/${name}`, {
             body: args ?? {},

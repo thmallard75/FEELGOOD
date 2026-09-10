@@ -3,9 +3,15 @@
 # analyzeTrip peut depasser 60 s (Overpass) : allonge le timeout de lecture.
 
 api.mondomaine.fr {
-	reverse_proxy 127.0.0.1:8787 {
-		transport http {
-			read_timeout 180s
+	@dev path /__dev /__dev/*
+	handle @dev {
+		respond 404
+	}
+	handle {
+		reverse_proxy 127.0.0.1:8787 {
+			transport http {
+				read_timeout 180s
+			}
 		}
 	}
 }
